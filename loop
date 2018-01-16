@@ -114,6 +114,11 @@ unmount() {
 
 op=$1
 
+if ! command -v jq >/dev/null 2>&1; then
+	err "{ \"status\": \"Failure\", \"message\": \"'jq' binary not found. Please install jq package before using this driver\"}"
+	exit 1
+fi
+
 if [ "$op" = "init" ]; then
         log '{"status": "Success", "capabilities": {"attach": false}}'
 	exit 0
