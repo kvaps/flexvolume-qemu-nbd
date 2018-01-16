@@ -1,0 +1,21 @@
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: loop-flexvolume
+spec:
+  template:
+    metadata:
+      name: loop-flexvolume
+      labels:
+        app: loop-flexvolume
+    spec:
+      containers:
+        - image: kvaps/kube-loop-flexvolume
+          name: loop-flexvolume
+          volumeMounts:
+            - mountPath: /flexmnt
+              name: flexvolume-mount
+      volumes:
+        - name: flexvolume-mount
+          hostPath:
+            path: /usr/libexec/kubernetes/kubelet-plugins/volume/exec
