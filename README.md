@@ -21,6 +21,12 @@ It can be a necessary step if your containers have a lot of small files and you 
 
 ## Quick start
 
+For installation just run:
+
+```
+kubectl create -f https://raw.githubusercontent.com/kvaps/kube-loop-flexvolume/master/kube-loop-flexvolume.yaml
+```
+
 ## Usage
 
 ## License
