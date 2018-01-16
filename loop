@@ -16,6 +16,7 @@
 
 # Notes:
 #  - Please install "jq" package before using this driver.
+
 usage() {
 	err "Invalid usage. Usage: "
 	err "\t$0 init"
@@ -32,25 +33,25 @@ log() {
 	echo -ne $* >&1
 }
 
-ismounted() {
-	MOUNT=`findmnt -n ${MNTPATH} 2>/dev/null | cut -d' ' -f1`
-	if [ "${MOUNT}" == "${MNTPATH}" ]; then
-		echo "1"
-	else
-		echo "0"
-	fi
-}
-
 domount() {
 	MNTPATH=$1
+	SHARE=$(echo $2 | jq -r '.share')
 	FILE=$(echo $2 | jq -r '.file')
 	FSTYPE=$(echo $2 | jq -r '.["kubernetes.io/fsType"]')
 	MMP=$(echo $2 | jq -r '.mmp')
 	SIZE=$(echo $2 | jq -r '.size' | tr '[:lower:]' '[:upper:]')
 
-	if [ "${MMP}" != "false" ] && [ "$FSTYPE" == "ext4" ]; then
+	if [ "${SHARE}" != "null" ]; then
+		if ! mountpoint -q "${SHARE}"; then
+			err "{ \"status\": \"Failed\", \"message\": \"${SHARE} is not mounted\"}"
+			exit 0
+		fi
+		FILE="${SHARE}/${FILE}"
+	fi
+
+	if [ "${MMP}" != "false" ] && [ "${FSTYPE}" == "ext4" ]; then
 		MMP_INTERVAL=$(echo $3 | jq -r '.mmpUpdateInterval')
-		[ "$MMP_INTERVAL" == "null" ] && MMP_INTERVAL=5
+		[ "${MMP_INTERVAL}" == "null" ] && MMP_INTERVAL=5
 		MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
 	fi
 
@@ -64,7 +65,7 @@ domount() {
             fi
 	fi
 
-	if [ $(ismounted) -eq 1 ] ; then
+	if mountpoint -q "${MNTPATH}"; then
 		log "{\"status\": \"Success\"}"
 		exit 0
 	fi
@@ -97,7 +98,7 @@ unmount() {
 		exit 0
 	fi
 
-	if [ $(ismounted) -eq 0 ] ; then
+	if ! mountpoint -q "${MNTPATH}"; then
 		log "{\"status\": \"Success\"}"
 		exit 0
 	fi
