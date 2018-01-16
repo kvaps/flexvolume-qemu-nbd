@@ -46,9 +46,9 @@ domount() {
 	FILE=$(echo $2 | jq -r '.file')
 	FSTYPE=$(echo $2 | jq -r '.["kubernetes.io/fsType"]')
 	MMP=$(echo $2 | jq -r '.mmp')
-	SIZE=$(echo $1 | jq -r '.size' | tr '[:lower:]' '[:upper:]')
+	SIZE=$(echo $2 | jq -r '.size' | tr '[:lower:]' '[:upper:]')
 
-	if [ ! -z "${MMP}" ]; then
+	if [ "${MMP}" != "false" ] && [ "$FSTYPE" == "ext4" ]; then
 		MMP_INTERVAL=$(echo $3 | jq -r '.mmpUpdateInterval')
 		[ "$MMP_INTERVAL" == "null" ] && MMP_INTERVAL=5
 		MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
