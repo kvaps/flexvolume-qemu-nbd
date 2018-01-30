@@ -1,3 +1,3 @@
 FROM alpine
-ADD install.sh loop /
+ADD install.sh nbd /
 CMD ["/install.sh"]
