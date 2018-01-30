@@ -1,22 +1,22 @@
 apiVersion: extensions/v1beta1
 kind: DaemonSet
 metadata:
-  name: loop-flexvolume
+  name: nbd-flexvolume
   namespace: kube-system
 spec:
   template:
     metadata:
-      name: loop-flexvolume
+      name: nbd-flexvolume
       labels:
-        app: loop-flexvolume
+        app: nbd-flexvolume
     spec:
       tolerations:
       - key: node-role.kubernetes.io/master
         operator: Exists
         effect: NoSchedule
       containers:
-        - image: kvaps/kube-loop-flexvolume
-          name: loop-flexvolume
+        - image: kvaps/kube-loop-flexvolume:nbd
+          name: nbd-flexvolume
           volumeMounts:
             - mountPath: /flexmnt
               name: flexvolume-mount
