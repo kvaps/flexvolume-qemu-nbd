@@ -82,34 +82,55 @@ domount() {
 
 	mkdir -p "${MNTPATH}" &> /dev/null
 
-	mount -o loop "${FILE}" "${MNTPATH}" &> /dev/null
+    modprobe nbd
+    NBDNUMBERS="$(ls -1 /dev/nbd[0-9]* | grep -o [0-9]* | sort -h)"
+    NBDDEVICE="$(for i in $NBDNUMBERS; do
+                     if fdisk -l "/dev/nbd$i" 2>&1 | grep -q 'Inappropriate ioctl for device'; then
+                         echo "/dev/nbd$i"
+                         break
+                     fi
+                 done)"
+
+    if [ -z "${NBDDEVICE}" ]; then
+		err "{\"status\": \"Failure\", \"message\": \"Free nbd device was not found\"}"
+		exit 1
+    fi
+
+    echo "${NBDDEVICE}" > "${MNTPATH}.device"
+    qemu-nbd -f raw -c "${NBDDEVICE}" "${FILE}"
 	if [ $? -ne 0 ]; then
-		err "{ \"status\": \"Failure\", \"message\": \"Failed to mount device ${FILE} at ${MNTPATH}\"}"
+		err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device ${NBDDEVICE} from ${FILE}\"}"
 		exit 1
 	fi
+
+	mount "${NBDDEVICE}" "${MNTPATH}" &> /dev/null
+	if [ $? -ne 0 ]; then
+		err "{ \"status\": \"Failure\", \"message\": \"Failed to mount device ${NBDDEVICE} from ${FILE} at ${MNTPATH}\"}"
+        qemu-nbd -d "${NBDDEVICE}"
+		exit 1
+	fi
+
 	log "{\"status\": \"Success\"}"
 	exit 0
 }
 
 unmount() {
 	MNTPATH=$1
-	if [ ! -d ${MNTPATH} ]; then
-		log "{\"status\": \"Success\"}"
-		exit 0
-	fi
+	if [ -d ${MNTPATH} ] && mountpoint -q "${MNTPATH}"; then
+	    umount ${MNTPATH} &> /dev/null
+	    if [ $? -ne 0 ]; then
+	        err "{ \"status\": \"Failed\", \"message\": \"Failed to unmount volume at ${MNTPATH}\"}"
+	        exit 1
+	    fi
+    fi
 
-	if ! mountpoint -q "${MNTPATH}"; then
-		log "{\"status\": \"Success\"}"
-		exit 0
-	fi
-
-	umount ${MNTPATH} &> /dev/null
-	if [ $? -ne 0 ]; then
-		err "{ \"status\": \"Failed\", \"message\": \"Failed to unmount volume at ${MNTPATH}\"}"
-		exit 1
-	fi
+    if [ -f ${MNTPATH}.device ]; then
+        qemu-nbd -d "$(cat ${MNTPATH}.device)"
+        rm -f ${MNTPATH}.device
+    fi
 
 	log "{\"status\": \"Success\"}"
+
 	exit 0
 }
 
