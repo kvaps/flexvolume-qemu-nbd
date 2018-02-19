@@ -40,6 +40,7 @@ domount() {
 	FSTYPE=$(echo $2 | jq -r '.["kubernetes.io/fsType"]')
 	MMP=$(echo $2 | jq -r '.mmp')
 	SIZE=$(echo $2 | jq -r '.size' | tr '[:lower:]' '[:upper:]')
+	FSCK=$(echo $2 | jq -r '.fsck')
 
 	if [ "${SHARE}" != "null" ]; then
 		if ! mountpoint -q "${SHARE}"; then
@@ -114,6 +115,14 @@ domount() {
 		exit 1
     fi
 
+	if [ "${FSCK}" != "false" ]; then
+        fsck -t ${FSTYPE} ${NBDDEVICE}
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Fsck check for ${NBDDEVICE} from ${FILE} was failed\"}"
+            qemu-nbd -d "${NBDDEVICE}" &>/dev/null
+            exit 1
+        fi
+	fi
 
 	mount "${NBDDEVICE}" "${MNTPATH}" &> /dev/null
 	if [ $? -ne 0 ]; then
