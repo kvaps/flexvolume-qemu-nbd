@@ -16,6 +16,7 @@ spec:
         effect: NoSchedule
       containers:
         - image: kvaps/kube-loop-flexvolume:nbd
+          imagePullPolicy: Always
           name: nbd-flexvolume
           volumeMounts:
             - mountPath: /flexmnt
