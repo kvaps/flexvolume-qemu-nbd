@@ -91,28 +91,26 @@ domount() {
 
     NBDNUMBERS="$(ls -1 /dev/nbd[0-9]* | grep -o [0-9]* | sort -h)"
     for i in $NBDNUMBERS; do
-        if fdisk -l "/dev/nbd$i" 2>&1 | grep -q 'Inappropriate ioctl for device'; then
+        if fdisk -l "/dev/nbd$i" 2>&1 | grep -q 'Inappropriate ioctl for device' && mkfifo /run/lock/qemu-nbd-nbd$i 2> /dev/null; then
 
             NBDDEVICE="/dev/nbd$i"
             echo "${NBDDEVICE}" > "${MNTPATH}.device"
-            qemu-nbd -f raw -c "${NBDDEVICE}" "${FILE}" &>/dev/null
 
-	        if [ $? -ne 0 ]; then
-                continue
-	        fi
 
             break
         fi
     done
 
-    if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device from ${FILE}\"}"
-        exit 1
-    fi
-
     if [ -z "${NBDDEVICE}" ]; then
 		err "{\"status\": \"Failure\", \"message\": \"Free nbd device was not found\"}"
 		exit 1
+    fi
+
+    qemu-nbd -f raw -c "${NBDDEVICE}" "${FILE}" &>/dev/null
+
+    if [ $? -ne 0 ]; then
+        err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
+        exit 1
     fi
 
     case "${FSCK}" in
