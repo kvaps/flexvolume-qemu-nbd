@@ -115,14 +115,18 @@ domount() {
 		exit 1
     fi
 
-	if [ "${FSCK}" != "false" ]; then
-        fsck -t ${FSTYPE} ${NBDDEVICE}
-        if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Fsck check for ${NBDDEVICE} from ${FILE} was failed\"}"
-            qemu-nbd -d "${NBDDEVICE}" &>/dev/null
-            exit 1
-        fi
-	fi
+    case "${FSCK}" in
+        false|no|0  )   true ;;
+        fix_all     )   fsck -y -t ${FSTYPE} ${NBDDEVICE} ;;
+        force       )   fsck -f -t ${FSTYPE} ${NBDDEVICE} ;;
+        *           )   fsck -t ${FSTYPE} ${NBDDEVICE} ;;
+    esac
+
+    if [ $? -ne 0 ]; then
+        err "{ \"status\": \"Failure\", \"message\": \"Fsck check for ${NBDDEVICE} from ${FILE} was failed\"}"
+        qemu-nbd -d "${NBDDEVICE}" &>/dev/null
+        exit 1
+    fi
 
 	mount "${NBDDEVICE}" "${MNTPATH}" &> /dev/null
 	if [ $? -ne 0 ]; then
