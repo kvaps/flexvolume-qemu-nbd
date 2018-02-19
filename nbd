@@ -50,7 +50,7 @@ domount() {
 		FILE="${SHARE}/${FILE}"
 	fi
 
-	if [ "${MMP}" != "false" ] && [ "${FSTYPE}" == "ext4" ]; then
+    if [[ "${MMP}" != +(false|no|0) ]] && [ "${FSTYPE}" == "ext4" ]; then
 		MMP_INTERVAL=$(echo $3 | jq -r '.mmpUpdateInterval')
 		[ "${MMP_INTERVAL}" == "null" ] && MMP_INTERVAL=5
 		MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
