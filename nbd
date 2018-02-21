@@ -81,6 +81,19 @@ domount() {
 		fi
 	fi
 
+    case "${FSCK}" in
+        false|no|0  )   true ;;
+        fix_all     )   fsck -y -t ${FSTYPE} ${FILE} &> /dev/null ;;
+        auto        )   fsck -a -t ${FSTYPE} ${FILE} &> /dev/null ;;
+        force       )   fsck -f -t ${FSTYPE} ${FILE} &> /dev/null ;;
+        *           )   fsck -n -t ${FSTYPE} ${FILE} &> /dev/null ;;
+    esac
+
+    if [ $? -ne 0 ]; then
+        err "{ \"status\": \"Failure\", \"message\": \"Fsck check for ${FILE} was failed\"}"
+        exit 1
+    fi
+
 	mkdir -p "${MNTPATH}" &> /dev/null
 
     modprobe nbd 2> /dev/null
@@ -113,20 +126,6 @@ domount() {
             err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
             exit 1
         fi
-    fi
-
-    case "${FSCK}" in
-        false|no|0  )   true ;;
-        fix_all     )   fsck -y -t ${FSTYPE} ${NBDDEVICE} &> /dev/null ;;
-        auto        )   fsck -a -t ${FSTYPE} ${NBDDEVICE} &> /dev/null ;;
-        force       )   fsck -f -t ${FSTYPE} ${NBDDEVICE} &> /dev/null ;;
-        *           )   fsck -n -t ${FSTYPE} ${NBDDEVICE} &> /dev/null ;;
-    esac
-
-    if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Fsck check for ${NBDDEVICE} from ${FILE} was failed\"}"
-        qemu-nbd -d "${NBDDEVICE}" &>/dev/null
-        exit 1
     fi
 
 	mount "${NBDDEVICE}" "${MNTPATH}" &> /dev/null
