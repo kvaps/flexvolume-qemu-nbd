@@ -118,6 +118,7 @@ domount() {
     case "${FSCK}" in
         false|no|0  )   true ;;
         fix_all     )   fsck -y -t ${FSTYPE} ${NBDDEVICE} &> /dev/null ;;
+        auto        )   fsck -a -t ${FSTYPE} ${NBDDEVICE} &> /dev/null ;;
         force       )   fsck -f -t ${FSTYPE} ${NBDDEVICE} &> /dev/null ;;
         *           )   fsck -n -t ${FSTYPE} ${NBDDEVICE} &> /dev/null ;;
     esac
