@@ -41,6 +41,15 @@ domount() {
 	MMP=$(echo $2 | jq -r '.mmp')
 	SIZE=$(echo $2 | jq -r '.size' | tr '[:lower:]' '[:upper:]')
 	FSCK=$(echo $2 | jq -r '.fsck')
+    MMP_INTERVAL=$(echo $3 | jq -r '.mmpUpdateInterval')
+	FSCK_OPTONS=$(echo $2 | jq -r '.fsck_options')
+	MOUNT_OPTONS=$(echo $2 | jq -r '.mount_options')
+
+    case null in
+        ${MMP_INTERVAL} ) MMP_INTERVAL=5  ;&
+        ${FSCK_OPTONS}  ) FSCK_OPTONS="n" ;&
+        ${MOUNT_OPTONS} ) MOUNT_OPTONS="" ;;
+    esac
 
 	if [ "${SHARE}" != "null" ]; then
 		if ! mountpoint -q "${SHARE}"; then
@@ -51,8 +60,6 @@ domount() {
 	fi
 
     if [[ "${MMP}" != +(false|no|0) ]] && [ "${FSTYPE}" == "ext4" ]; then
-		MMP_INTERVAL=$(echo $3 | jq -r '.mmpUpdateInterval')
-		[ "${MMP_INTERVAL}" == "null" ] && MMP_INTERVAL=5
 		MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
 	fi
 
@@ -81,17 +88,13 @@ domount() {
 		fi
 	fi
 
-    case "${FSCK}" in
-        false|no|0  )   true ;;
-        fix_all     )   fsck -y -t ${FSTYPE} ${FILE} &> /dev/null ;;
-        auto        )   fsck -a -t ${FSTYPE} ${FILE} &> /dev/null ;;
-        force       )   fsck -f -t ${FSTYPE} ${FILE} &> /dev/null ;;
-        *           )   fsck -n -t ${FSTYPE} ${FILE} &> /dev/null ;;
-    esac
+    if [[ "${FSCK}" != +(false|no|0) ]]; then
+        fsck -${FSCK_OPTIONS} -t ${FSTYPE} ${FILE} &> /dev/null ;;
 
-    if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Fsck check for ${FILE} was failed\"}"
-        exit 1
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Fsck ${FSCK_OPTIONS} check for ${FILE} was failed\"}"
+            exit 1
+        fi
     fi
 
 	mkdir -p "${MNTPATH}" &> /dev/null
@@ -128,7 +131,7 @@ domount() {
         fi
     fi
 
-	mount "${NBDDEVICE}" "${MNTPATH}" &> /dev/null
+	mount -o "${MOUNT_OPTIONS}" "${NBDDEVICE}" "${MNTPATH}" &> /dev/null
 	if [ $? -ne 0 ]; then
 		err "{ \"status\": \"Failure\", \"message\": \"Failed to mount device ${NBDDEVICE} from ${FILE} at ${MNTPATH}\"}"
         qemu-nbd -d "${NBDDEVICE}" &>/dev/null
