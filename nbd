@@ -89,8 +89,7 @@ domount() {
 	fi
 
     if [[ "${FSCK}" != +(false|no|0) ]]; then
-        fsck -${FSCK_OPTIONS} -t ${FSTYPE} ${FILE} &> /dev/null ;;
-
+        fsck -${FSCK_OPTIONS} -t ${FSTYPE} ${FILE} &> /dev/null
         if [ $? -ne 0 ]; then
             err "{ \"status\": \"Failure\", \"message\": \"Fsck ${FSCK_OPTIONS} check for ${FILE} was failed\"}"
             exit 1
