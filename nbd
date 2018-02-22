@@ -42,13 +42,13 @@ domount() {
 	SIZE=$(echo $2 | jq -r '.size' | tr '[:lower:]' '[:upper:]')
 	FSCK=$(echo $2 | jq -r '.fsck')
     MMP_INTERVAL=$(echo $3 | jq -r '.mmpUpdateInterval')
-	FSCK_OPTONS=$(echo $2 | jq -r '.fsck_options')
-	MOUNT_OPTONS=$(echo $2 | jq -r '.mount_options')
+	FSCK_OPTIONS=$(echo $2 | jq -r '.fsck_options')
+	MOUNT_OPTIONS=$(echo $2 | jq -r '.mount_options')
 
     case null in
         ${MMP_INTERVAL} ) MMP_INTERVAL=5  ;&
-        ${FSCK_OPTONS}  ) FSCK_OPTONS="n" ;&
-        ${MOUNT_OPTONS} ) MOUNT_OPTONS="" ;;
+        ${FSCK_OPTIONS}  ) FSCK_OPTIONS="n" ;&
+        ${MOUNT_OPTIONS} ) MOUNT_OPTIONS="" ;;
     esac
 
 	if [ "${SHARE}" != "null" ]; then
