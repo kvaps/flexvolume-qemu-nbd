@@ -154,6 +154,7 @@ unmount() {
     fi
 
     if [ ! -z ${NBDDEVICE} ]; then
+        sync
         qemu-nbd -d ${NBDDEVICE} &>/dev/null
     fi
 
