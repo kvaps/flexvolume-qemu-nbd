@@ -1,14 +1,14 @@
 apiVersion: extensions/v1beta1
 kind: DaemonSet
 metadata:
-  name: nbd-flexvolume
+  name: sheepdog-flexvolume
   namespace: kube-system
 spec:
   template:
     metadata:
-      name: nbd-flexvolume
+      name: sheepdog-flexvolume
       labels:
-        app: nbd-flexvolume
+        app: sheepdog-flexvolume
     spec:
       tolerations:
       - key: node-role.kubernetes.io/master
@@ -17,7 +17,7 @@ spec:
       containers:
         - image: kvaps/kube-loop-flexvolume:nbd
           imagePullPolicy: Always
-          name: nbd-flexvolume
+          name: sheepdog-flexvolume
           volumeMounts:
             - mountPath: /flexmnt
               name: flexvolume-mount

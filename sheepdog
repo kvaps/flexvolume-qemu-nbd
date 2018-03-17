@@ -35,11 +35,18 @@ log() {
 
 domount() {
     MNTPATH=$1
-    SHARE=$(echo $2 | jq -r '.share')
-    FILE=$(echo $2 | jq -r '.file')
+
+    for OPTION in prealloc hyper copies address port block_size_shift; do
+        VALUE="$(echo "$2" | jq -r ".$OPTION")"
+        if [ "$VALUE" != "null" ]; then
+            export DOG_CREATE_OPTS+=" --${OPTION}=${VALUE}"
+        fi
+    done
+
+    VDINAME=$(echo $2 | jq -r '.vdiname')
+    SIZE=$(echo $2 | jq -r '.size' | tr '[:lower:]' '[:upper:]')
     FSTYPE=$(echo $2 | jq -r '.["kubernetes.io/fsType"]')
     MMP=$(echo $2 | jq -r '.mmp')
-    SIZE=$(echo $2 | jq -r '.size' | tr '[:lower:]' '[:upper:]')
     FSCK=$(echo $2 | jq -r '.fsck')
     MMP_INTERVAL=$(echo $3 | jq -r '.mmpUpdateInterval')
     FSCK_OPTIONS=$(echo $2 | jq -r '.fsck_options')
@@ -51,25 +58,20 @@ domount() {
         ${MOUNT_OPTIONS} ) MOUNT_OPTIONS="" ;;
     esac
 
-    if [ "${SHARE}" != "null" ]; then
-        if ! mountpoint -q "${SHARE}"; then
-            err "{ \"status\": \"Failed\", \"message\": \"${SHARE} is not mounted\"}"
-            exit 0
-        fi
-        FILE="${SHARE}/${FILE}"
-    fi
-
     if [[ "${MMP}" != +(false|no|0) ]] && [ "${FSTYPE}" == "ext4" ]; then
         MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
     fi
 
-    if [ ! -f "${FILE}" ]; then
+    if qemu-img info sheepdog:"${VDINAME}" &>/dev/null; then
         if [ -z "${SIZE}" ]; then
-            err "{\"status\": \"Failure\", \"message\": \"${FILE} does not exist\"}"
+            err "{\"status\": \"Failure\", \"message\": \"${VDINAME} does not exist\"}"
             exit 1
         else
-            mkdir -p "$(dirname "${FILE}")"
-            truncate -s ${SIZE} "${FILE}"
+            dog vdi create $DOG_CREATE_OPTS "$VDINAME" "$SIZE"
+            if [ $? -ne 0 ]; then
+                err "{ \"status\": \"Failure\", \"message\": \"Failed to create vdi ${VDINAME}\"}"
+                exit 1
+            fi
         fi
     fi
 
@@ -78,26 +80,6 @@ domount() {
         exit 0
     fi
 
-    VOLFSTYPE=`blkid -o udev ${FILE} 2>/dev/null|grep "ID_FS_TYPE"|cut -d"=" -f2`
-    if [ "${VOLFSTYPE}" == "" ]; then
-
-        mkfs -t ${FSTYPE} ${MMP_OPT} ${FILE} >/dev/null 2>&1
-        if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Failed to create fs ${FSTYPE} on device ${FILE}\"}"
-            exit 1
-        fi
-    fi
-
-    if [[ "${FSCK}" != +(false|no|0) ]]; then
-        fsck -${FSCK_OPTIONS} -t ${FSTYPE} ${FILE} &> /dev/null
-        if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Fsck ${FSCK_OPTIONS} check for ${FILE} was failed\"}"
-            exit 1
-        fi
-    fi
-
-    mkdir -p "${MNTPATH}" &> /dev/null
-
     modprobe nbd 2> /dev/null
     if [ $? -ne 0 ]; then
         err "{ \"status\": \"Failure\", \"message\": \"Failed to load nbd module\"}"
@@ -105,7 +87,7 @@ domount() {
     fi
 
     # Check if nbd device already connected
-    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${FILE}\$|\1|p" | head -n1)"
+    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) sheepdog:${VDINAME}\$|\1|p" | head -n1)"
 
     # Find and connect new nbd device
     if [ -z "${NBDDEVICE}" ]; then
@@ -122,17 +104,40 @@ domount() {
             exit 1
         fi
     
-        qemu-nbd -f raw -c "${NBDDEVICE}" "${FILE}" &>/dev/null
+        qemu-nbd -f raw -c "${NBDDEVICE}" "sheepdog:${VDINAME}" &>/dev/null
     
         if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${VDINAME}\"}"
             exit 1
         fi
     fi
 
+
+    VOLFSTYPE=`blkid -o udev ${NBDDEVICE} 2>/dev/null|grep "ID_FS_TYPE"|cut -d"=" -f2`
+    if [ "${VOLFSTYPE}" == "" ]; then
+
+        mkfs -t ${FSTYPE} ${MMP_OPT} ${NBDDEVICE} >/dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to create fs ${FSTYPE} on device ${NBDDEVICE}\"}"
+            exit 1
+        fi
+    fi
+
+    if [[ "${FSCK}" != +(false|no|0) ]]; then
+        fsck -${FSCK_OPTIONS} -t ${FSTYPE} ${NBDDEVICE} &> /dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Fsck ${FSCK_OPTIONS} check for ${NBDDEVICE} was failed\"}"
+            exit 1
+        fi
+    fi
+
+    mkdir -p "${MNTPATH}" &> /dev/null
+
+
+
     mount -o "${MOUNT_OPTIONS}" "${NBDDEVICE}" "${MNTPATH}" &> /dev/null
     if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Failed to mount device ${NBDDEVICE} from ${FILE} at ${MNTPATH}\"}"
+        err "{ \"status\": \"Failure\", \"message\": \"Failed to mount device ${NBDDEVICE} at ${MNTPATH}\"}"
         qemu-nbd -d "${NBDDEVICE}" &>/dev/null
         exit 1
     fi

@@ -15,7 +15,7 @@ spec:
   volumes:
   - name: test
     flexVolume:
-      driver: "kvaps/nbd"
+      driver: "kvaps/sheepdog"
       fsType: "ext4"
       options:
         share: "/stor/beegfs-1"
