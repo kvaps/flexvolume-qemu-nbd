@@ -62,7 +62,7 @@ domount() {
         MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
     fi
 
-    if qemu-img info sheepdog:"${VDINAME}" &>/dev/null; then
+    if ! qemu-img info sheepdog:"${VDINAME}" &>/dev/null; then
         if [ -z "${SIZE}" ]; then
             err "{\"status\": \"Failure\", \"message\": \"${VDINAME} does not exist\"}"
             exit 1
