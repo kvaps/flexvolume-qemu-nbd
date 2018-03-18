@@ -4,7 +4,7 @@ set -o errexit
 set -o pipefail
 
 VENDOR=kvaps
-DRIVER=nbd
+DRIVER=sheepdog
 
 # Assuming the single driver file is located at /$DRIVER inside the DaemonSet image.
 
