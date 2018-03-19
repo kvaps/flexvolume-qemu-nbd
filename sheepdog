@@ -54,7 +54,7 @@ domount() {
 
     case null in
         ${MMP_INTERVAL} ) MMP_INTERVAL=5  ;&
-        ${FSCK_OPTIONS}  ) FSCK_OPTIONS="n" ;&
+        ${FSCK_OPTIONS}  ) FSCK_OPTIONS="a" ;&
         ${MOUNT_OPTIONS} ) MOUNT_OPTIONS="" ;;
     esac
 
@@ -126,7 +126,7 @@ domount() {
     if [[ "${FSCK}" != +(false|no|0) ]]; then
         fsck -${FSCK_OPTIONS} -t ${FSTYPE} ${NBDDEVICE} &> /dev/null
         if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Fsck ${FSCK_OPTIONS} check for ${NBDDEVICE} was failed\"}"
+            err "{ \"status\": \"Failure\", \"message\": \"Fsck -${FSCK_OPTIONS} check for ${NBDDEVICE} was failed\"}"
             exit 1
         fi
     fi
