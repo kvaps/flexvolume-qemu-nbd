@@ -59,10 +59,12 @@ domount() {
         ${MOUNT_OPTIONS} ) MOUNT_OPTIONS="" ;;
     esac
 
-    if [ "$ADDRESS" != null ]; then
+    if [ "$ADDRESS" != null ] && [ "$PORT" == null ]; then
         IMAGE_URL="sheepdog://${ADDRESS}/${VDINAME}"
     elif [ "$ADDRESS" != null ] && [ "$PORT" != null ]; then
         IMAGE_URL="sheepdog://${ADDRESS}:${PORT}/${VDINAME}"
+    elif [ "$ADDRESS" == null ] && [ "$PORT" != null ]; then
+        IMAGE_URL="sheepdog://:${PORT}/${VDINAME}"
     else
         IMAGE_URL="sheepdog:${VDINAME}"
     fi
