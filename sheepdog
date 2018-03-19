@@ -38,6 +38,7 @@ domount() {
 
     for OPTION in prealloc hyper copies address port block_size_shift; do
         VALUE="$(echo "$2" | jq -r ".$OPTION")"
+        export "$(echo $OPTION | tr '[:lower:]' '[:upper:]')=$VALUE"
         if [ "$VALUE" != "null" ]; then
             export DOG_CREATE_OPTS+=" --${OPTION}=${VALUE}"
         fi
@@ -58,18 +59,26 @@ domount() {
         ${MOUNT_OPTIONS} ) MOUNT_OPTIONS="" ;;
     esac
 
+    if [ "$ADDRESS" != null ]; then
+        IMAGE_URL="sheepdog://${ADDRESS}/${VDINAME}"
+    elif [ "$ADDRESS" != null ] && [ "$PORT" != null ]; then
+        IMAGE_URL="sheepdog://${ADDRESS}:${PORT}/${VDINAME}"
+    else
+        IMAGE_URL="sheepdog:${VDINAME}"
+    fi
+
     if [[ "${MMP}" != +(false|no|0) ]] && [ "${FSTYPE}" == "ext4" ]; then
         MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
     fi
 
-    if ! qemu-img info sheepdog:"${VDINAME}" &>/dev/null; then
+    if ! qemu-img info "${IMAGE_URL}" &>/dev/null; then
         if [ -z "${SIZE}" ]; then
-            err "{\"status\": \"Failure\", \"message\": \"${VDINAME} does not exist\"}"
+            err "{\"status\": \"Failure\", \"message\": \"Failed to get ${IMAGE_URL}.\"}"
             exit 1
         else
             dog vdi create $DOG_CREATE_OPTS "$VDINAME" "$SIZE"
             if [ $? -ne 0 ]; then
-                err "{ \"status\": \"Failure\", \"message\": \"Failed to create vdi ${VDINAME}\"}"
+                err "{ \"status\": \"Failure\", \"message\": \"Failed to create vdi ${IMAGE_URL}\"}"
                 exit 1
             fi
         fi
@@ -87,7 +96,7 @@ domount() {
     fi
 
     # Check if nbd device already connected
-    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) sheepdog:${VDINAME}\$|\1|p" | head -n1)"
+    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${IMAGE_URL}\$|\1|p" | head -n1)"
 
     # Find and connect new nbd device
     if [ -z "${NBDDEVICE}" ]; then
@@ -104,10 +113,10 @@ domount() {
             exit 1
         fi
     
-        qemu-nbd -f raw -c "${NBDDEVICE}" "sheepdog:${VDINAME}" &>/dev/null
+        qemu-nbd -f raw -c "${NBDDEVICE}" "${IMAGE_URL}" &>/dev/null
     
         if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${VDINAME}\"}"
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${IMAGE_URL}\"}"
             exit 1
         fi
     fi
