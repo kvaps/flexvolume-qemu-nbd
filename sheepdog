@@ -73,7 +73,9 @@ domount() {
         MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
     fi
 
-    if ! qemu-img info "${IMAGE_URL}" &>/dev/null; then
+    QEMU_IMG_INFO_STDERR="$(qemu-img info "${IMAGE_URL}" 2>&1 1>/dev/null)"
+
+    if echo "$QEMU_IMG_INFO_STDERR" | grep -q 'No vdi found'; then
         if [ -z "${SIZE}" ]; then
             err "{\"status\": \"Failure\", \"message\": \"Failed to get ${IMAGE_URL}.\"}"
             exit 1
@@ -84,6 +86,9 @@ domount() {
                 exit 1
             fi
         fi
+    elif [ -n "$QEMU_IMG_INFO_STDERR" ]; then
+        err "{ \"status\": \"Failure\", \"message\": \"${QEMU_IMG_INFO_STDERR}\"}"
+        exit 1
     fi
 
     if mountpoint -q "${MNTPATH}"; then
@@ -181,6 +186,10 @@ unmount() {
 
 op=$1
 
+if ! command -v dog >/dev/null 2>&1; then
+    err "{ \"status\": \"Failure\", \"message\": \"'dog' binary not found. Please install sheepdog package before using this driver\"}"
+    exit 1
+fi
 if ! command -v jq >/dev/null 2>&1; then
     err "{ \"status\": \"Failure\", \"message\": \"'jq' binary not found. Please install jq package before using this driver\"}"
     exit 1
