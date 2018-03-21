@@ -140,9 +140,9 @@ domount() {
     fi
 
     if [[ "${FSCK}" != +(false|no|0) ]]; then
-        fsck -${FSCK_OPTIONS} -t ${FSTYPE} ${NBDDEVICE} &> /dev/null
+        FSCK_STDERR="$(fsck -${FSCK_OPTIONS} -t ${FSTYPE} ${NBDDEVICE} 2>&1 1>/dev/null)"
         if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Fsck -${FSCK_OPTIONS} check for ${NBDDEVICE} was failed\"}"
+            err "{ \"status\": \"Failure\", \"message\": \"Fsck -${FSCK_OPTIONS} was failed: ${FSCK_STDERR}\"}"
             exit 1
         fi
     fi
