@@ -55,11 +55,10 @@ There is few examples, check ![examples](examples) dir for more detail.
 basic options:
  * `kubernetes.io/fsType` - filesystem type (default: `ext4`)
  * `mmp` - enable multimount protection (default: `true`)
- * `size` - specify the volume size
+ * `size` - specify the volume size, if set driver will create volume in filesystem
  * `fsck` - run filesystem check before mount (default `true`)
  * `mmpUpdateInterval` - specify the multimount protection interval (default `5`)
  * `fsckOptions` - fsck options for checking filesystem (default `a`)
- * `allocate` - create volume in filesystem if not exists (default `false`)
 
 loop and qemu-nbd specific options:
  * `share` - path to your share, driver will return error if it not mounted in the system 

@@ -87,7 +87,7 @@ waitforattach() {
     FSCK=$(echo "$1" | jq -r '.fsck')
     MMP_INTERVAL=$(echo "$1" | jq -r '.mmpUpdateInterval')
     FSCK_OPTIONS=$(echo "$1" | jq -r '.fsckOptions')
-    AUTO_ALLOCATE=$(echo "$1" | jq -r '.autoAllocate')
+    ALLOCATE=$(echo "$1" | jq -r '.allocate')
 
     # Get driver specific options
     if [ "$DRIVER" = "sheepdog" ]; then
@@ -147,33 +147,25 @@ waitforattach() {
 
     # Allocate image
     if [ "$IMAGE_EXIST" = 0 ]; then
-        case "$ALLOCATE" in
-            true|yes|1)
-                if [ -z "${SIZE}" ]; then
-                    err "{\"status\": \"Failure\", \"message\": \"Can not allocate: size is not set\"}"
-                    exit 1
-                fi
+        if [ -z "${SIZE}" ]; then
+            err "{\"status\": \"Failure\", \"message\": \"${IMAGE_URL} does not exist\"}"
+            exit 1
+        fi
 
-                if [ "$DRIVER" != "sheepdog" ]; then
-                    mkdir -p "$(dirname "${FILE}")"
-                    truncate -s ${SIZE} "${FILE}"
-                    if [ $? -ne 0 ]; then
-                        err "{\"status\": \"Failure\", \"message\": \"Can not create file ${FILE}\"}"
-                        exit 1
-                    fi
-                else
-                    dog vdi create $DOG_CREATE_OPTS "$VDINAME" "$SIZE"
-                    if [ $? -ne 0 ]; then
-                        err "{ \"status\": \"Failure\", \"message\": \"Failed to create vdi ${IMAGE_URL}\"}"
-                        exit 1
-                    fi
-                fi
-            ;;
-            *)
-                err "{\"status\": \"Failure\", \"message\": \"${IMAGE_URL} does not exist\"}"
+        if [ "$DRIVER" != "sheepdog" ]; then
+            mkdir -p "$(dirname "${FILE}")"
+            truncate -s ${SIZE} "${FILE}"
+            if [ $? -ne 0 ]; then
+                err "{\"status\": \"Failure\", \"message\": \"Can not create file ${FILE}\"}"
                 exit 1
-            ;;
-        esac
+            fi
+        else
+            dog vdi create $DOG_CREATE_OPTS "$VDINAME" "$SIZE"
+            if [ $? -ne 0 ]; then
+                err "{ \"status\": \"Failure\", \"message\": \"Failed to create vdi ${IMAGE_URL}\"}"
+                exit 1
+            fi
+        fi
     fi
 
     if [ "$DRIVER" != "loop" ]; then
