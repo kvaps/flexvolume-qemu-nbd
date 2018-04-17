@@ -13,12 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-PATH="$PATH:$(dirname "$(readlink -f "$0")")"
-DRIVER="$(basename $0)"
-
-# enable debug
-#echo "$@" >> /tmp/flex-qemu-nbd.log
-
 usage() {
     cat 1>&2 <<EOF
 
@@ -303,14 +297,30 @@ unmountdevice() {
     exit 0
 }
 
-op=$1
+
+PATH="$PATH:$(dirname "$(readlink -f "$0")")"
+DRIVER="$(basename $0)"
+OPERATION=$1
+
+# enable debug
+#echo "$@" >> /tmp/flex-qemu-nbd.log
+
+case "${DRIVER}" in
+    loop|qemu-nbd|nbd|sheepdog)
+        true
+        ;;
+    *)
+        err "{ \"status\": \"Failure\", \"message\": \"'${DRIVER}' wrong name for driver\"}"
+        exit 1
+        ;;
+esac
 
 if ! command -v jq >/dev/null 2>&1; then
     err "{ \"status\": \"Failure\", \"message\": \"'jq' binary not found. Please install jq package before using this driver\"}"
     exit 1
 fi
 
-if [ "$op" = "init" ]; then
+if [ "$OPERATION" = "init" ]; then
     log "{\"status\":\"Success\",\"capabilities\":{\"attach\":true}}"
     exit 0
 fi
@@ -321,7 +331,7 @@ fi
 
 shift
 
-case "$op" in
+case "$OPERATION" in
     waitforattach)
         waitforattach $*
         ;;

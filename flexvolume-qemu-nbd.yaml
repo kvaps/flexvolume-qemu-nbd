@@ -15,7 +15,7 @@ spec:
         operator: Exists
         effect: NoSchedule
       containers:
-          - image: kvaps/flexvolume-qemu-nbd:latest
+        - image: kvaps/flexvolume-qemu-nbd:latest
           imagePullPolicy: Always
           name: flexvolume-qemu-nbd
           volumeMounts:
