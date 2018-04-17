@@ -108,8 +108,8 @@ waitforattach() {
     SIZE=$(echo "$1" | jq -r '.size' | tr '[:lower:]' '[:upper:]')
     FSCK=$(echo "$1" | jq -r '.fsck')
     MMP_INTERVAL=$(echo "$1" | jq -r '.mmpUpdateInterval')
-    FSCK_OPTIONS=$(echo "$1" | jq -r '.fsck_options')
-    MOUNT_OPTIONS=$(echo "$1" | jq -r '.mount_options')
+    FSCK_OPTIONS=$(echo "$1" | jq -r '.fsckOptions')
+    AUTO_ALLOCATE=$(echo "$1" | jq -r '.autoAllocate')
     if [ "${SHARE}" != "null" ]; then
         FILE="${SHARE}/${FILE}"
     fi
@@ -124,13 +124,25 @@ waitforattach() {
 
     # Check is FILE exists
     if [ ! -f "${FILE}" ]; then
-        if [ -z "${SIZE}" ]; then
-            err "{\"status\": \"Failure\", \"message\": \"${FILE} does not exist\"}"
-            exit 1
-        else
-            mkdir -p "$(dirname "${FILE}")"
-            truncate -s ${SIZE} "${FILE}"
-        fi
+        case "$ALLOCATE" in
+            true|yes|1)
+                if [ -z "${SIZE}" ]; then
+                    err "{\"status\": \"Failure\", \"message\": \"Can not allocate: size is not set\"}"
+                    exit 1
+                fi
+
+                mkdir -p "$(dirname "${FILE}")"
+                truncate -s ${SIZE} "${FILE}"
+                if [ $? -ne 0 ]; then
+                    err "{\"status\": \"Failure\", \"message\": \"Can not create file ${FILE}\"}"
+                    exit 1
+                fi
+            ;;
+            *)
+                err "{\"status\": \"Failure\", \"message\": \"${FILE} does not exist\"}"
+                exit 1
+            ;;
+        esac
     fi
 
     if [ "$DRIVER" = "qemu-nbd" ] || [ "$DRIVER" = "nbd" ] || [ "$DRIVER" == "sheepdog" ]; then
