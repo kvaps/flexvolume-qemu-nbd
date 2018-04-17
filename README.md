@@ -1,8 +1,16 @@
-# QEMU-NBD flexvolume driver (ex loop driver)
+# loop and qemu-nbd flexvolume drivers for kubernetes
 
-This driver allows you to create large files on shared filesystem, then format it and mount as volume for container.
+This driver provides you next options:
 
-It can be a necessary step if your containers have a lot of small files and you want to avoid excessive access to metadata.
+ - `loop` - simple loopback device
+ - `qemu-nbd` - same like loopback but using qemu-nbd
+ - `sheepdog` - sheepdog support (experimental)
+
+Basicly this driver allows you to use large files on shared filesystem as vrtual drives for your containers.
+
+It can be a necessary step if your containers have a lot of small files and you want to avoid excessive access to metadata of shared filesystem.
+
+There is also experimental sheepdog support.
 
 ## Features
 
@@ -13,10 +21,21 @@ It can be a necessary step if your containers have a lot of small files and you 
 ## Requirements
 
 * Kubernetes: >=1.9 version
-* Common filesystem mounted on each node in one place
+
+* loop mode requirements:
+  * Common filesystem mounted on each node in one place
+
+* qemu-nbd mode requirements:
+  * Common filesystem mounted on each node in one place
+  * `qemu-img` and `qemu-nbd` installed in the system
+
+* sheepdog mode requirements:
+  * Sheepdog cluster
+  * `dog`, `qemu-img` and `qemu-nbd` installed in the system
 
 ## Limitations
 
+* Only raw images currently supported.
 * Each volume will formatted with simple file system, so only one pod can use it in r/w mode.
 
 ## Quick start
