@@ -295,7 +295,7 @@ DRIVER="$(basename $0)"
 OPERATION=$1
 
 # enable debug
-#echo "$@" >> /tmp/flex-qemu-nbd.log
+#echo "$DRIVER $@" >> /tmp/flex-qemu-nbd.log
 
 case "${DRIVER}" in
     loop|qemu-nbd|nbd|sheepdog)
