@@ -22,14 +22,14 @@ There is also experimental sheepdog support.
 
 * Kubernetes: >=1.9 version
 
-* loop mode requirements:
+loop mode requirements:
   * Common filesystem mounted on each node in one place
 
-* qemu-nbd mode requirements:
+qemu-nbd mode requirements:
   * Common filesystem mounted on each node in one place
   * `qemu-img` and `qemu-nbd` installed in the system
 
-* sheepdog mode requirements:
+sheepdog mode requirements:
   * Sheepdog cluster
   * `dog`, `qemu-img` and `qemu-nbd` installed in the system
 
@@ -40,7 +40,39 @@ There is also experimental sheepdog support.
 
 ## Quick start
 
+This command will install all the drivers on your nodes:
+
+```
+kubectl apply -f https://raw.githubusercontent.com/kvaps/flexvolume-qemu-nbd/master/flexvolume-qemu-nbd.yaml
+```
+
 ## Usage
+
+There is few examples, check ![examples](examples) dir for more detail.
+
+## Options
+
+basic options:
+ * `kubernetes.io/fsType` - filesystem type (default: `ext4`)
+ * `mmp` - enable multimount protection (default: `true`)
+ * `size` - specify the volume size
+ * `fsck` - run filesystem check before mount (default `true`)
+ * `mmpUpdateInterval` - specify the multimount protection interval (default `5`)
+ * `fsckOptions` - fsck options for checking filesystem (default `a`)
+ * `allocate` - create volume in filesystem if not exists (default `false`)
+
+loop and qemu-nbd specific options:
+ * `share` - path to your share, driver will return error if it not mounted in the system 
+ * `file` - releative path to your volume, from `/` or from `share` if set
+
+sheepdog specific options:
+ * `vdiname` - volume name in sheepdog cluster
+ * `prealloc` - preallocate all the data objects
+ * `hyper` - create a hyper volume
+ * `copies` - specify the data redundancy level
+ * `address` - specify the sheepdog node address (default `localhost`)
+ * `port` - specify the sheepdog daemon port
+ * `block_size_shift` - specify the bit shift num for data object size
 
 ## License
 
