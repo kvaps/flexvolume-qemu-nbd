@@ -128,7 +128,7 @@ waitforattach() {
     fi
 
     # Check is image exist
-    if [ "$DRIVER" = "loop" ]; then
+    if [ "$DRIVER" != "sheepdog" ]; then
         if [ ! -f "${FILE}" ]; then
             IMAGE_EXIST=0
         else
