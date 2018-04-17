@@ -39,7 +39,7 @@ getdevice() {
     if [ -z "${NBDDEVICE}" ]; then
         local NBDNUMBERS="$(ls -1 /dev/nbd[0-9]* | grep -o [0-9]* | sort -h)"
         for i in $NBDNUMBERS; do
-            if lsblk "/dev/nbd$i" 1>/dev/null 2>/dev/null && mkfifo /run/lock/qemu-nbd-nbd$i 2> /dev/null; then
+            if ! lsblk "/dev/nbd$i" 1>/dev/null 2>/dev/null && mkfifo /run/lock/qemu-nbd-nbd$i 2> /dev/null; then
                 local NBDDEVICE="/dev/nbd$i"
                 break
             fi
