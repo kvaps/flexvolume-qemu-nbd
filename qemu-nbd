@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Notes:
-#  - Please install "jq" package before using this driver.
-
 PATH="$PATH:$(dirname "$(readlink -f "$0")")"
 DRIVER="$(basename $0)"
 
@@ -57,17 +54,6 @@ getdevice() {
     echo "$NBDDEVICE"
 }
 
-getvolumename() {
-    SHARE=$(echo "$1" | jq -r '.share')
-    FILE=$(echo "$1" | jq -r '.file')
-    if [ "${SHARE}" != "null" ]; then
-        FILE="${SHARE}/${FILE}"
-        VOLUMENAME="$(echo "$FILE" | tr '/' '-')"
-    fi
-    log "{\"status\": \"Success\", \"volumeName\":\"${VOLUMENAME}\"}"
-    exit 0
-}
-
 dofilesystem() {
     [ "$FSTYPE" = "" ] && FSTYPE="ext4"
     [ "$MMP_INTERVAL" = null ] && MMP_INTERVAL=5 
@@ -101,8 +87,6 @@ dofilesystem() {
 } 
 
 waitforattach() {
-    SHARE=$(echo "$1" | jq -r '.share')
-    FILE=$(echo "$1" | jq -r '.file')
     FSTYPE=$(echo "$1" | jq -r '.["kubernetes.io/fsType"]')
     MMP=$(echo "$1" | jq -r '.mmp')
     SIZE=$(echo "$1" | jq -r '.size' | tr '[:lower:]' '[:upper:]')
@@ -110,20 +94,65 @@ waitforattach() {
     MMP_INTERVAL=$(echo "$1" | jq -r '.mmpUpdateInterval')
     FSCK_OPTIONS=$(echo "$1" | jq -r '.fsckOptions')
     AUTO_ALLOCATE=$(echo "$1" | jq -r '.autoAllocate')
-    if [ "${SHARE}" != "null" ]; then
-        FILE="${SHARE}/${FILE}"
+
+    # Get driver specific options
+    if [ "$DRIVER" = "sheepdog" ]; then
+        for OPTION in prealloc hyper copies address port block_size_shift; do
+            VALUE="$(echo "$2" | jq -r ".$OPTION")"
+            export "$(echo $OPTION | tr '[:lower:]' '[:upper:]')=$VALUE"
+            if [ "$VALUE" != "null" ]; then
+                export DOG_CREATE_OPTS+=" --${OPTION}=${VALUE}"
+            fi
+        done
+        VDINAME=$(echo $2 | jq -r '.vdiname')
+    else
+        SHARE=$(echo "$1" | jq -r '.share')
+        FILE=$(echo "$1" | jq -r '.file')
+        if [ "${SHARE}" != "null" ]; then
+            FILE="${SHARE}/${FILE}"
+        fi
+    fi
+
+    if [ "$DRIVER" != "sheepdog" ]; then
+        IMAGE_URL="$FILE"
+    elif [ "$ADDRESS" != null ] && [ "$PORT" == null ]; then
+        IMAGE_URL="sheepdog://${ADDRESS}/${VDINAME}"
+    elif [ "$ADDRESS" != null ] && [ "$PORT" != null ]; then
+        IMAGE_URL="sheepdog://${ADDRESS}:${PORT}/${VDINAME}"
+    elif [ "$ADDRESS" == null ] && [ "$PORT" != null ]; then
+        IMAGE_URL="sheepdog://:${PORT}/${VDINAME}"
+    else
+        IMAGE_URL="sheepdog:${VDINAME}"
     fi
 
     # Check is SHARE mountpoint
-    if [ "${SHARE}" != "null" ]; then
+    if [ "$DRIVER" != "sheepdog" ] && [ "${SHARE}" != "null" ]; then
         if ! mountpoint -q "${SHARE}"; then
             err "{ \"status\": \"Failed\", \"message\": \"${SHARE} is not mounted\"}"
             exit 0
         fi
     fi
 
-    # Check is FILE exists
-    if [ ! -f "${FILE}" ]; then
+    # Check is image exist
+    if [ "$DRIVER" = "loop" ]; then
+        if [ ! -f "${FILE}" ]; then
+            IMAGE_EXIST=0
+        else
+            IMAGE_EXIST=1
+        fi
+    else
+        QEMU_IMG_INFO_STDERR="$(qemu-img info "${IMAGE_URL}" 2>&1 1>/dev/null)"
+        if echo "$QEMU_IMG_INFO_STDERR" | grep -q 'No vdi found'; then
+            IMAGE_EXIST=0
+        elif [ -n "$QEMU_IMG_INFO_STDERR" ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"${QEMU_IMG_INFO_STDERR}\"}"
+            exit 1
+        fi
+        IMAGE_EXIST=1
+    fi
+
+    # Allocate image
+    if [ "$IMAGE_EXIST" = 0 ]; then
         case "$ALLOCATE" in
             true|yes|1)
                 if [ -z "${SIZE}" ]; then
@@ -131,26 +160,36 @@ waitforattach() {
                     exit 1
                 fi
 
-                mkdir -p "$(dirname "${FILE}")"
-                truncate -s ${SIZE} "${FILE}"
-                if [ $? -ne 0 ]; then
-                    err "{\"status\": \"Failure\", \"message\": \"Can not create file ${FILE}\"}"
-                    exit 1
+                if [ "$DRIVER" != "sheepdog" ]; then
+                    mkdir -p "$(dirname "${FILE}")"
+                    truncate -s ${SIZE} "${FILE}"
+                    if [ $? -ne 0 ]; then
+                        err "{\"status\": \"Failure\", \"message\": \"Can not create file ${FILE}\"}"
+                        exit 1
+                    fi
+                else
+                    dog vdi create $DOG_CREATE_OPTS "$VDINAME" "$SIZE"
+                    if [ $? -ne 0 ]; then
+                        err "{ \"status\": \"Failure\", \"message\": \"Failed to create vdi ${IMAGE_URL}\"}"
+                        exit 1
+                    fi
                 fi
             ;;
             *)
-                err "{\"status\": \"Failure\", \"message\": \"${FILE} does not exist\"}"
+                err "{\"status\": \"Failure\", \"message\": \"${IMAGE_URL} does not exist\"}"
                 exit 1
             ;;
         esac
     fi
 
-    if [ "$DRIVER" = "qemu-nbd" ] || [ "$DRIVER" = "nbd" ] || [ "$DRIVER" == "sheepdog" ]; then
-        # Check for qemu-nbd binary
-        if ! command -v qemu-nbd >/dev/null 2>&1; then
-            err "{ \"status\": \"Failure\", \"message\": \"'qemu-nbd' binary not found. Please install qemu-utils package before using this driver\"}"
-            exit 1
-        fi
+    if [ "$DRIVER" != "loop" ]; then
+        # Check for qemu binaries
+        for binary in qemu-nbd qemu-img; do
+            if ! command -v $binary >/dev/null 2>&1; then
+                err "{ \"status\": \"Failure\", \"message\": \"'$binary' binary not found. Please install qemu-utils package before using this driver\"}"
+                exit 1
+            fi
+        done
 
         # Load nbd module
         modprobe nbd 2> /dev/null
@@ -160,45 +199,45 @@ waitforattach() {
         fi
 
         # Check is already attached
-        NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${FILE}\$|\1|p" | head -n1)"
+        NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${IMAGE_URL}\$|\1|p" | head -n1)"
         if [ ! -z "${NBDDEVICE}" ]; then
             log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
             exit 0
         fi
 
         # Get free nbd device
-        NBDDEVICE="$(getdevice "${FILE}")"
+        NBDDEVICE="$(getdevice)"
         if [ -z "${NBDDEVICE}" ]; then
             err "{\"status\": \"Failure\", \"message\": \"Free nbd device was not found\"}"
             exit 1
         fi
     fi
 
-   
-    if [ "$DRIVER" = "loop" ]; then
-
-        # Do filesystem checks
+    # Do filesystem check
+    if [ "$DRIVER" != "sheepdog" ]; then
         dofilesystem "$FILE"
+    fi
 
+    # Skip device setting when loop
+    if [ "$DRIVER" = "loop" ]; then
         log "{\"status\": \"Success\", \"device\":\"${FILE}\"}"
         exit 0
-
-    elif [ "$DRIVER" = "qemu-nbd" ] || [ "$DRIVER" = "nbd" ]; then
-
-        # Do filesystem checks
-        dofilesystem "$FILE"
-
-        # Setup nbd device
-        qemu-nbd -f raw -c "${NBDDEVICE}" "${FILE}" &>/dev/null
-        if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
-            exit 1
-        fi
-
-        log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
-        exit 0
-
     fi
+
+    # Setup nbd device
+    qemu-nbd -f raw -c "${NBDDEVICE}" "${IMAGE_URL}" &>/dev/null
+    if [ $? -ne 0 ]; then
+        err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
+        exit 1
+    fi
+
+    # Do filesystem check
+    if [ "$DRIVER" = "sheepdog" ]; then
+        dofilesystem "$NBDDEVICE"
+    fi
+
+    log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
+    exit 0
 }
 
 mountdevice() {
@@ -251,7 +290,7 @@ unmountdevice() {
         exit 1
     fi
 
-    if [ "$DRIVER" = "qemu-nbd" ] || [ "$DRIVER" = "nbd" ] || [ "$DRIVER" = "sheepdog" ]; then
+    if [ "$DRIVER" != "loop" ]; then
         sleep 1
         qemu-nbd -d ${DEVICE} &>/dev/null
         if [ $? -ne 0 ]; then
