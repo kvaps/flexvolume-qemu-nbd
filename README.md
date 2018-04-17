@@ -1,4 +1,4 @@
-# kube-loop-flexvolume
+# QEMU-NBD flexvolume driver (ex loop driver)
 
 This driver allows you to create large files on shared filesystem, then format it and mount as volume for container.
 
@@ -25,4 +25,4 @@ It can be a necessary step if your containers have a lot of small files and you 
 
 ## License
 
-* Kube-loop-flexvolume is under the Apache 2.0 license. (See the [LICENSE](LICENSE) file for details)
+* `flexvolume-qemu-nbd` is under the Apache 2.0 license. (See the [LICENSE](LICENSE) file for details)

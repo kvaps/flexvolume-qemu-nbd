@@ -101,6 +101,12 @@ waitforattach() {
         fi
     fi
 
+    # Check for qemu-nbd binary
+    if ! command -v qemu-nbd >/dev/null 2>&1; then
+        err "{ \"status\": \"Failure\", \"message\": \"'qemu-nbd' binary not found. Please install qemu-utils package before using this driver\"}"
+        exit 1
+    fi
+
     # Load nbd module
     modprobe nbd 2> /dev/null
     if [ $? -ne 0 ]; then

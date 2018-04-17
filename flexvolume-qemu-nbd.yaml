@@ -1,23 +1,23 @@
 apiVersion: extensions/v1beta1
 kind: DaemonSet
 metadata:
-  name: nbd-flexvolume
+  name: flexvolume-qemu-nbd
   namespace: kube-system
 spec:
   template:
     metadata:
-      name: nbd-flexvolume
+      name: flexvolume-qemu-nbd
       labels:
-        app: nbd-flexvolume
+        app: flexvolume-qemu-nbd
     spec:
       tolerations:
       - key: node-role.kubernetes.io/master
         operator: Exists
         effect: NoSchedule
       containers:
-        - image: kvaps/kube-loop-flexvolume:nbd
+          - image: kvaps/flexvolume-qemu-nbd:latest
           imagePullPolicy: Always
-          name: nbd-flexvolume
+          name: flexvolume-qemu-nbd
           volumeMounts:
             - mountPath: /flexmnt
               name: flexvolume-mount
