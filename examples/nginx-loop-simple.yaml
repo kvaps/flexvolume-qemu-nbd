@@ -15,9 +15,8 @@ spec:
   volumes:
   - name: test
     flexVolume:
-      driver: "kvaps/qemu-nbd"
+      driver: "kvaps/loop"
       fsType: "ext4"
       options:
-        share: "/stor/beegfs-1"
-        file: "/kube-volumes/test"
+        file: "/tmp/kube-volumes/test"
         size: "1g"
