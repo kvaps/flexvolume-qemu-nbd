@@ -1,5 +1,4 @@
-#!/bin/bash
-
+#!/bin/sh
 # Copyright 2015 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,20 +16,30 @@
 # Notes:
 #  - Please install "jq" package before using this driver.
 
+PATH="$PATH:$(dirname "$(readlink -f "$0")")"
+
+# enable debug
+#echo "$@" >> /tmp/flex-qemu-nbd.log
+
 usage() {
-    err "Invalid usage. Usage: "
-    err "\t$0 init"
-    err "\t$0 mountdevice <mount dir> <mount device> <json params>"
-    err "\t$0 unmountdevice <mount dir>"
+    cat 1>&2 <<EOF
+
+Invalid usage. Usage: 
+    $(basename $0) init
+    $(basename $0) waitforattach <json params>
+    $(basename $0) mountdevice <mount dir> <mount device> <json params>
+    $(basename $0) unmountdevice <mount dir>
+
+EOF
     exit 1
 }
 
 err() {
-    echo -ne $* 1>&2
+    printf "$*" 1>&2
 }
 
 log() {
-    echo -ne $* >&1
+    printf "$*" >&1
 }
 
 getdevice() {
@@ -47,27 +56,42 @@ getdevice() {
     echo "$NBDDEVICE"
 }
 
-isattached() {
-    SHARE=$(echo $2 | jq -r '.share')
-    FILE=$(echo $2 | jq -r '.file')
+getvolumename() {
+    SHARE=$(echo "$1" | jq -r '.share')
+    FILE=$(echo "$1" | jq -r '.file')
+    if [ "${SHARE}" != "null" ]; then
+        FILE="${SHARE}/${FILE}"
+        VOLUMENAME="$(echo "$FILE" | tr '/' '-')"
+    fi
+    log "{\"status\": \"Success\", \"volumeName\":\"${VOLUMENAME}\"}"
+    exit 0
+}
+
+waitforattach() {
+    SHARE=$(echo "$1" | jq -r '.share')
+    FILE=$(echo "$1" | jq -r '.file')
+    FSTYPE=$(echo "$1" | jq -r '.["kubernetes.io/fsType"]')
+    MMP=$(echo "$1" | jq -r '.mmp')
+    SIZE=$(echo "$1" | jq -r '.size' | tr '[:lower:]' '[:upper:]')
+    FSCK=$(echo "$1" | jq -r '.fsck')
+    MMP_INTERVAL=$(echo "$1" | jq -r '.mmpUpdateInterval')
+    FSCK_OPTIONS=$(echo "$1" | jq -r '.fsck_options')
+    MOUNT_OPTIONS=$(echo "$1" | jq -r '.mount_options')
     if [ "${SHARE}" != "null" ]; then
         FILE="${SHARE}/${FILE}"
     fi
 
-    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${FILE}\$|\1|p" | head -n1)"
+    # Load defaults
+    [ "$FSTYPE" = "" ] && FSTYPE="ext4"
+    [ "$MMP_INTERVAL" = null ] && MMP_INTERVAL=5 
+    [ "$FSCK_OPTIONS" = null ] && FSCK_OPTIONS="a"
 
-    if [ -z "${NBDDEVICE}" ]; then
-        log "{\"status\": \"Success\", \"attached\":false}"
-    else
-        log "{\"status\": \"Success\", \"attached\":true, \"device\": \"${NBDDEVICE}\"}"
-    fi
-
-    exit 0
-}
-
-attach() {
-    SHARE=$(echo $1 | jq -r '.share')
-    FILE=$(echo $1 | jq -r '.file')
+    # Calculate multimount protection options
+    case "$MMP" in false|no|0)
+        if [ "${FSTYPE}" = "ext4" ]; then
+            MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
+        fi
+    ;; esac
 
     # Check is SHARE mountpoint
     if [ "${SHARE}" != "null" ]; then
@@ -75,7 +99,6 @@ attach() {
             err "{ \"status\": \"Failed\", \"message\": \"${SHARE} is not mounted\"}"
             exit 0
         fi
-        FILE="${SHARE}/${FILE}"
     fi
 
     # Load nbd module
@@ -86,7 +109,7 @@ attach() {
     fi
 
     # Check is already attached
-    NBDDEVICE=$("$0" isattached "$1" | jq -r .device) 
+    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${FILE}\$|\1|p" | head -n1)"
     if [ ! -z "${NBDDEVICE}" ]; then
         log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
         exit 0
@@ -110,53 +133,23 @@ attach() {
         fi
     fi
 
-    log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
-}
-
-waitforattach() {
-    NBDDEVICE=$1
-    SHARE=$(echo $2 | jq -r '.share')
-    FILE=$(echo $2 | jq -r '.file')
-    FSTYPE=$(echo $2 | jq -r '.["kubernetes.io/fsType"]')
-    MMP=$(echo $2 | jq -r '.mmp')
-    SIZE=$(echo $2 | jq -r '.size' | tr '[:lower:]' '[:upper:]')
-    FSCK=$(echo $2 | jq -r '.fsck')
-    MMP_INTERVAL=$(echo $2 | jq -r '.mmpUpdateInterval')
-    FSCK_OPTIONS=$(echo $2 | jq -r '.fsck_options')
-    MOUNT_OPTIONS=$(echo $2 | jq -r '.mount_options')
-    if [ "${SHARE}" != "null" ]; then
-        FILE="${SHARE}/${FILE}"
-    fi
-
-    # Load defaults
-    case null in
-        ${MMP_INTERVAL} ) MMP_INTERVAL=5  ;&
-        ${FSCK_OPTIONS}  ) FSCK_OPTIONS="a" ;&
-        ${MOUNT_OPTIONS} ) MOUNT_OPTIONS="" ;;
-    esac
-
-    # Calculate multimount protection options
-    if [[ "${MMP}" != +(false|no|0) ]] && [ "${FSTYPE}" == "ext4" ]; then
-        MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
-    fi
-
-    # Make filesystem
-    VOLFSTYPE=`blkid -o udev ${FILE} 2>/dev/null|grep "ID_FS_TYPE"|cut -d"=" -f2`
-    if [ "${VOLFSTYPE}" == "" ]; then
-        mkfs -t ${FSTYPE} ${MMP_OPT} ${FILE} >/dev/null 2>&1
+    VOLFSTYPE=`blkid -o udev "$FILE" 2>/dev/null|grep "ID_FS_TYPE"|cut -d"=" -f2`
+    if [ "${VOLFSTYPE}" = "" ]; then
+        # Make filesystem
+        mkfs -t "${FSTYPE}" ${MMP_OPT} "${FILE}" >/dev/null 2>&1
         if [ $? -ne 0 ]; then
             err "{ \"status\": \"Failure\", \"message\": \"Failed to create fs ${FSTYPE} on device ${FILE}\"}"
             exit 1
         fi
-    fi
-
-    # Do filesystem check
-    if [[ "${FSCK}" != +(false|no|0) ]]; then
-        fsck -${FSCK_OPTIONS} -t ${FSTYPE} ${FILE} &> /dev/null
-        if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Fsck -${FSCK_OPTIONS} check for ${FILE} was failed\"}"
-            exit 1
-        fi
+    else
+        # Do filesystem check
+        case "$FSCK" in false|no|0)
+            fsck -${FSCK_OPTIONS} ${FILE} &>/dev/null
+            if [ $? -ne 0 ]; then
+                err "{ \"status\": \"Failure\", \"message\": \"Fsck -${FSCK_OPTIONS} check for ${FILE} was failed\"}"
+                exit 1
+            fi
+        ;; esac
     fi
     
     # Setup nbd device
@@ -170,25 +163,11 @@ waitforattach() {
     exit 0
 }
 
-detach() {
-    NBDDEVICE=$1
-
-    sync
-    qemu-nbd -d ${NBDDEVICE} &>/dev/null
-    if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Failed to detach device ${NBDDEVICE}\"}"
-        exit 1
-    fi
-    rm -f "/run/lock/qemu-nbd-${NBD_DEVICE#/dev/}"
-
-    log "{\"status\": \"Success\"}"
-    exit 0
-}
-
 mountdevice() {
     MNTPATH=$1
     NBDDEVICE=$2
     MOUNT_OPTIONS=$(echo $3 | jq -r '.mount_options')
+    [ "$MOUNT_OPTIONS" = null ] && MOUNT_OPTIONS=""
 
     # Create mountpoint
     mkdir -p "${MNTPATH}" &> /dev/null
@@ -213,6 +192,7 @@ mountdevice() {
 
 unmountdevice() {
     MNTPATH=$1
+    NBDDEVICE=$(mount | awk "\$3 == \"$(readlink -f $MNTPATH)\" {print \$1}" | head -n 1)
 
     if [ ! -d ${MNTPATH} ]; then
         log "{\"status\": \"Success\"}"
@@ -227,6 +207,13 @@ unmountdevice() {
     umount ${MNTPATH} &> /dev/null
     if [ $? -ne 0 ]; then
         err "{ \"status\": \"Failed\", \"message\": \"Failed to unmount volume at ${MNTPATH}\"}"
+        exit 1
+    fi
+
+    sleep 1
+    qemu-nbd -d ${NBDDEVICE} &>/dev/null
+    if [ $? -ne 0 ]; then
+        err "{ \"status\": \"Failure\", \"message\": \"Failed to detach device ${NBDDEVICE}\"}"
         exit 1
     fi
 
@@ -253,27 +240,19 @@ fi
 shift
 
 case "$op" in
-    attach)
-        attach $*
-        ;;
-    detach)
-        detach $*
-        ;;
     waitforattach)
         waitforattach $*
         ;;
     mountdevice)
-        domountdevice $*
+        mountdevice $*
         ;;
     unmountdevice)
         unmountdevice $*
         ;;
-    isattached)
-                isattached $*
-                ;;
     *)
         log "{ \"status\": \"Not supported\" }"
         exit 0
+    ;;
 esac
 
 exit 1
