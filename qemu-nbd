@@ -39,7 +39,7 @@ getdevice() {
     if [ -z "${NBDDEVICE}" ]; then
         local NBDNUMBERS="$(ls -1 /dev/nbd[0-9]* | grep -o [0-9]* | sort -h)"
         for i in $NBDNUMBERS; do
-            if lsblk "/dev/nbd$i" &>/dev/null && mkfifo /run/lock/qemu-nbd-nbd$i 2> /dev/null; then
+            if lsblk "/dev/nbd$i" 1>/dev/null 2>/dev/null && mkfifo /run/lock/qemu-nbd-nbd$i 2> /dev/null; then
                 local NBDDEVICE="/dev/nbd$i"
                 break
             fi
@@ -71,7 +71,7 @@ dofilesystem() {
     else
         # Do filesystem check
         case "$FSCK" in false|no|0)
-            fsck -${FSCK_OPTIONS} ${1} &>/dev/null
+            fsck -${FSCK_OPTIONS} ${1} 1>/dev/null 2>/dev/null
             if [ $? -ne 0 ]; then
                 err "{ \"status\": \"Failure\", \"message\": \"Fsck -${FSCK_OPTIONS} check for ${1} was failed\"}"
                 exit 1
@@ -211,7 +211,7 @@ waitforattach() {
     fi
 
     # Setup nbd device
-    qemu-nbd -f raw -c "${NBDDEVICE}" "${IMAGE_URL}" &>/dev/null
+    qemu-nbd -f raw -c "${NBDDEVICE}" "${IMAGE_URL}" 1>/dev/null 2>/dev/null
     if [ $? -ne 0 ]; then
         err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
         exit 1
@@ -236,7 +236,7 @@ mountdevice() {
     fi
 
     # Create mountpoint
-    mkdir -p "${MNTPATH}" &> /dev/null
+    mkdir -p "${MNTPATH}" 1>/dev/null 2>/dev/null
 
     # Check is already mounted
     if mountpoint -q "${MNTPATH}"; then
@@ -245,7 +245,7 @@ mountdevice() {
     fi
 
     # Mount device
-    mount -o "${MOUNT_OPTIONS}" "${DEVICE}" "${MNTPATH}" &> /dev/null
+    mount -o "${MOUNT_OPTIONS}" "${DEVICE}" "${MNTPATH}" 1>/dev/null 2>/dev/null
     if [ $? -ne 0 ]; then
         err "{ \"status\": \"Failure\", \"message\": \"Failed to mount device ${DEVICE} at ${MNTPATH}\"}"
         exit 1
@@ -270,7 +270,7 @@ unmountdevice() {
         exit 0
     fi
 
-    umount ${MNTPATH} &> /dev/null
+    umount ${MNTPATH} 1>/dev/null 2>/dev/null
     if [ $? -ne 0 ]; then
         err "{ \"status\": \"Failed\", \"message\": \"Failed to unmount volume at ${MNTPATH}\"}"
         exit 1
@@ -278,7 +278,7 @@ unmountdevice() {
 
     if [ "$DRIVER" != "loop" ]; then
         sleep 1
-        qemu-nbd -d ${DEVICE} &>/dev/null
+        qemu-nbd -d ${DEVICE} 1>/dev/null 2>/dev/null
         if [ $? -ne 0 ]; then
             err "{ \"status\": \"Failure\", \"message\": \"Failed to detach device ${DEVICE}\"}"
             exit 1
