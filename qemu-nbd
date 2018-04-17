@@ -168,37 +168,6 @@ waitforattach() {
         fi
     fi
 
-    if [ "$DRIVER" != "loop" ]; then
-        # Check for qemu binaries
-        for binary in qemu-nbd qemu-img; do
-            if ! command -v $binary >/dev/null 2>&1; then
-                err "{ \"status\": \"Failure\", \"message\": \"'$binary' binary not found. Please install qemu-utils package before using this driver\"}"
-                exit 1
-            fi
-        done
-
-        # Load nbd module
-        modprobe nbd 2> /dev/null
-        if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Failed to load nbd module\"}"
-            exit 1
-        fi
-
-        # Check is already attached
-        NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${IMAGE_URL}\$|\1|p" | head -n1)"
-        if [ ! -z "${NBDDEVICE}" ]; then
-            log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
-            exit 0
-        fi
-
-        # Get free nbd device
-        NBDDEVICE="$(getdevice)"
-        if [ -z "${NBDDEVICE}" ]; then
-            err "{\"status\": \"Failure\", \"message\": \"Free nbd device was not found\"}"
-            exit 1
-        fi
-    fi
-
     # Do filesystem check
     if [ "$DRIVER" != "sheepdog" ]; then
         dofilesystem "$FILE"
@@ -208,6 +177,35 @@ waitforattach() {
     if [ "$DRIVER" = "loop" ]; then
         log "{\"status\": \"Success\", \"device\":\"${FILE}\"}"
         exit 0
+    fi
+
+    # Check for qemu binaries
+    for binary in qemu-nbd qemu-img; do
+        if ! command -v $binary >/dev/null 2>&1; then
+            err "{ \"status\": \"Failure\", \"message\": \"'$binary' binary not found. Please install qemu-utils package before using this driver\"}"
+            exit 1
+        fi
+    done
+
+    # Load nbd module
+    modprobe nbd 2> /dev/null
+    if [ $? -ne 0 ]; then
+        err "{ \"status\": \"Failure\", \"message\": \"Failed to load nbd module\"}"
+        exit 1
+    fi
+
+    # Check is already attached
+    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${IMAGE_URL}\$|\1|p" | head -n1)"
+    if [ ! -z "${NBDDEVICE}" ]; then
+        log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
+        exit 0
+    fi
+
+    # Get free nbd device
+    NBDDEVICE="$(getdevice)"
+    if [ -z "${NBDDEVICE}" ]; then
+        err "{\"status\": \"Failure\", \"message\": \"Free nbd device was not found\"}"
+        exit 1
     fi
 
     # Setup nbd device
