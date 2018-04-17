@@ -17,6 +17,7 @@
 #  - Please install "jq" package before using this driver.
 
 PATH="$PATH:$(dirname "$(readlink -f "$0")")"
+DRIVER="$(basename $0)"
 
 # enable debug
 #echo "$@" >> /tmp/flex-qemu-nbd.log
@@ -25,10 +26,10 @@ usage() {
     cat 1>&2 <<EOF
 
 Invalid usage. Usage: 
-    $(basename $0) init
-    $(basename $0) waitforattach <json params>
-    $(basename $0) mountdevice <mount dir> <mount device> <json params>
-    $(basename $0) unmountdevice <mount dir>
+    $DRIVER init
+    $DRIVER waitforattach <json params>
+    $DRIVER mountdevice <mount dir> <mount device> <json params>
+    $DRIVER unmountdevice <mount dir>
 
 EOF
     exit 1
@@ -67,6 +68,38 @@ getvolumename() {
     exit 0
 }
 
+dofilesystem() {
+    [ "$FSTYPE" = "" ] && FSTYPE="ext4"
+    [ "$MMP_INTERVAL" = null ] && MMP_INTERVAL=5 
+    [ "$FSCK_OPTIONS" = null ] && FSCK_OPTIONS="a"
+
+    # Calculate multimount protection options
+    case "$MMP" in false|no|0)
+        if [ "${FSTYPE}" = "ext4" ]; then
+            MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
+        fi
+    ;; esac
+
+    VOLFSTYPE=`blkid -o udev "$1" 2>/dev/null|grep "ID_FS_TYPE"|cut -d"=" -f2`
+    if [ "${VOLFSTYPE}" = "" ]; then
+        # Make filesystem
+        mkfs -t "${FSTYPE}" ${MMP_OPT} "${1}" >/dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to create fs ${FSTYPE} on device ${1}\"}"
+            exit 1
+        fi
+    else
+        # Do filesystem check
+        case "$FSCK" in false|no|0)
+            fsck -${FSCK_OPTIONS} ${1} &>/dev/null
+            if [ $? -ne 0 ]; then
+                err "{ \"status\": \"Failure\", \"message\": \"Fsck -${FSCK_OPTIONS} check for ${1} was failed\"}"
+                exit 1
+            fi
+        ;; esac
+    fi
+} 
+
 waitforattach() {
     SHARE=$(echo "$1" | jq -r '.share')
     FILE=$(echo "$1" | jq -r '.file')
@@ -81,51 +114,12 @@ waitforattach() {
         FILE="${SHARE}/${FILE}"
     fi
 
-    # Load defaults
-    [ "$FSTYPE" = "" ] && FSTYPE="ext4"
-    [ "$MMP_INTERVAL" = null ] && MMP_INTERVAL=5 
-    [ "$FSCK_OPTIONS" = null ] && FSCK_OPTIONS="a"
-
-    # Calculate multimount protection options
-    case "$MMP" in false|no|0)
-        if [ "${FSTYPE}" = "ext4" ]; then
-            MMP_OPT="-O mmp -E mmp_update_interval=${MMP_INTERVAL}"
-        fi
-    ;; esac
-
     # Check is SHARE mountpoint
     if [ "${SHARE}" != "null" ]; then
         if ! mountpoint -q "${SHARE}"; then
             err "{ \"status\": \"Failed\", \"message\": \"${SHARE} is not mounted\"}"
             exit 0
         fi
-    fi
-
-    # Check for qemu-nbd binary
-    if ! command -v qemu-nbd >/dev/null 2>&1; then
-        err "{ \"status\": \"Failure\", \"message\": \"'qemu-nbd' binary not found. Please install qemu-utils package before using this driver\"}"
-        exit 1
-    fi
-
-    # Load nbd module
-    modprobe nbd 2> /dev/null
-    if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Failed to load nbd module\"}"
-        exit 1
-    fi
-
-    # Check is already attached
-    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${FILE}\$|\1|p" | head -n1)"
-    if [ ! -z "${NBDDEVICE}" ]; then
-        log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
-        exit 0
-    fi
-
-    # Get free nbd device
-    NBDDEVICE="$(getdevice "${FILE}")"
-    if [ -z "${NBDDEVICE}" ]; then
-        err "{\"status\": \"Failure\", \"message\": \"Free nbd device was not found\"}"
-        exit 1
     fi
 
     # Check is FILE exists
@@ -139,41 +133,70 @@ waitforattach() {
         fi
     fi
 
-    VOLFSTYPE=`blkid -o udev "$FILE" 2>/dev/null|grep "ID_FS_TYPE"|cut -d"=" -f2`
-    if [ "${VOLFSTYPE}" = "" ]; then
-        # Make filesystem
-        mkfs -t "${FSTYPE}" ${MMP_OPT} "${FILE}" >/dev/null 2>&1
-        if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Failed to create fs ${FSTYPE} on device ${FILE}\"}"
+    if [ "$DRIVER" = "qemu-nbd" ] || [ "$DRIVER" = "nbd" ] || [ "$DRIVER" == "sheepdog" ]; then
+        # Check for qemu-nbd binary
+        if ! command -v qemu-nbd >/dev/null 2>&1; then
+            err "{ \"status\": \"Failure\", \"message\": \"'qemu-nbd' binary not found. Please install qemu-utils package before using this driver\"}"
             exit 1
         fi
-    else
-        # Do filesystem check
-        case "$FSCK" in false|no|0)
-            fsck -${FSCK_OPTIONS} ${FILE} &>/dev/null
-            if [ $? -ne 0 ]; then
-                err "{ \"status\": \"Failure\", \"message\": \"Fsck -${FSCK_OPTIONS} check for ${FILE} was failed\"}"
-                exit 1
-            fi
-        ;; esac
-    fi
-    
-    # Setup nbd device
-    qemu-nbd -f raw -c "${NBDDEVICE}" "${FILE}" &>/dev/null
-    if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
-        exit 1
+
+        # Load nbd module
+        modprobe nbd 2> /dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to load nbd module\"}"
+            exit 1
+        fi
+
+        # Check is already attached
+        NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${FILE}\$|\1|p" | head -n1)"
+        if [ ! -z "${NBDDEVICE}" ]; then
+            log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
+            exit 0
+        fi
+
+        # Get free nbd device
+        NBDDEVICE="$(getdevice "${FILE}")"
+        if [ -z "${NBDDEVICE}" ]; then
+            err "{\"status\": \"Failure\", \"message\": \"Free nbd device was not found\"}"
+            exit 1
+        fi
     fi
 
-    log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
-    exit 0
+   
+    if [ "$DRIVER" = "loop" ]; then
+
+        # Do filesystem checks
+        dofilesystem "$FILE"
+
+        log "{\"status\": \"Success\", \"device\":\"${FILE}\"}"
+        exit 0
+
+    elif [ "$DRIVER" = "qemu-nbd" ] || [ "$DRIVER" = "nbd" ]; then
+
+        # Do filesystem checks
+        dofilesystem "$FILE"
+
+        # Setup nbd device
+        qemu-nbd -f raw -c "${NBDDEVICE}" "${FILE}" &>/dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
+            exit 1
+        fi
+
+        log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
+        exit 0
+
+    fi
 }
 
 mountdevice() {
     MNTPATH=$1
-    NBDDEVICE=$2
+    DEVICE=$2
     MOUNT_OPTIONS=$(echo $3 | jq -r '.mount_options')
     [ "$MOUNT_OPTIONS" = null ] && MOUNT_OPTIONS=""
+    if [ "$DRIVER" = "loop" ]; then
+        MOUNT_OPTIONS="loop,$MOUNTOPTIONS"
+    fi
 
     # Create mountpoint
     mkdir -p "${MNTPATH}" &> /dev/null
@@ -185,9 +208,9 @@ mountdevice() {
     fi
 
     # Mount device
-    mount -o "${MOUNT_OPTIONS}" "${NBDDEVICE}" "${MNTPATH}" &> /dev/null
+    mount -o "${MOUNT_OPTIONS}" "${DEVICE}" "${MNTPATH}" &> /dev/null
     if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Failed to mount device ${NBDDEVICE} at ${MNTPATH}\"}"
+        err "{ \"status\": \"Failure\", \"message\": \"Failed to mount device ${DEVICE} at ${MNTPATH}\"}"
         exit 1
     fi
 
@@ -198,7 +221,7 @@ mountdevice() {
 
 unmountdevice() {
     MNTPATH=$1
-    NBDDEVICE=$(mount | awk "\$3 == \"$(readlink -f $MNTPATH)\" {print \$1}" | head -n 1)
+    DEVICE=$(mount | awk "\$3 == \"$(readlink -f $MNTPATH)\" {print \$1}" | head -n 1)
 
     if [ ! -d ${MNTPATH} ]; then
         log "{\"status\": \"Success\"}"
@@ -216,11 +239,13 @@ unmountdevice() {
         exit 1
     fi
 
-    sleep 1
-    qemu-nbd -d ${NBDDEVICE} &>/dev/null
-    if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Failed to detach device ${NBDDEVICE}\"}"
-        exit 1
+    if [ "$DRIVER" = "qemu-nbd" ] || [ "$DRIVER" = "nbd" ] || [ "$DRIVER" = "sheepdog" ]; then
+        sleep 1
+        qemu-nbd -d ${DEVICE} &>/dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to detach device ${DEVICE}\"}"
+            exit 1
+        fi
     fi
 
     log "{\"status\": \"Success\"}"
