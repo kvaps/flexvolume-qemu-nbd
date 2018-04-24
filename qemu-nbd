@@ -91,14 +91,14 @@ waitforattach() {
 
     # Get driver specific options
     if [ "$DRIVER" = "sheepdog" ]; then
-        for OPTION in prealloc hyper copies address port block_size_shift; do
-            VALUE="$(echo "$2" | jq -r ".$OPTION")"
+        for OPTION in prealloc hyper copies address address port block_size_shift; do
+            VALUE="$(echo "$1" | jq -r ".$OPTION")"
             export "$(echo $OPTION | tr '[:lower:]' '[:upper:]')=$VALUE"
             if [ "$VALUE" != "null" ]; then
-                export DOG_CREATE_OPTS+=" --${OPTION}=${VALUE}"
+                export DOG_CREATE_OPTS="$DOG_CREATE_OPTS --${OPTION}=${VALUE}"
             fi
         done
-        VDINAME=$(echo $2 | jq -r '.vdiname')
+        VDINAME=$(echo $1 | jq -r '.vdiname')
     else
         SHARE=$(echo "$1" | jq -r '.share')
         FILE=$(echo "$1" | jq -r '.file')
@@ -109,11 +109,11 @@ waitforattach() {
 
     if [ "$DRIVER" != "sheepdog" ]; then
         IMAGE_URL="$FILE"
-    elif [ "$ADDRESS" != null ] && [ "$PORT" == null ]; then
+    elif [ "$ADDRESS" != null ] && [ "$PORT" = null ]; then
         IMAGE_URL="sheepdog://${ADDRESS}/${VDINAME}"
     elif [ "$ADDRESS" != null ] && [ "$PORT" != null ]; then
         IMAGE_URL="sheepdog://${ADDRESS}:${PORT}/${VDINAME}"
-    elif [ "$ADDRESS" == null ] && [ "$PORT" != null ]; then
+    elif [ "$ADDRESS" = null ] && [ "$PORT" != null ]; then
         IMAGE_URL="sheepdog://:${PORT}/${VDINAME}"
     else
         IMAGE_URL="sheepdog:${VDINAME}"
