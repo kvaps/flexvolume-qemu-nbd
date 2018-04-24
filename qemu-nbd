@@ -141,8 +141,9 @@ waitforattach() {
         elif [ -n "$QEMU_IMG_INFO_STDERR" ]; then
             err "{ \"status\": \"Failure\", \"message\": \"${QEMU_IMG_INFO_STDERR}\"}"
             exit 1
+        else
+            IMAGE_EXIST=1
         fi
-        IMAGE_EXIST=1
     fi
 
     # Allocate image
