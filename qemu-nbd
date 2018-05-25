@@ -312,6 +312,10 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 if [ "$OPERATION" = "init" ]; then
+    # Disable kernel panic on oops due:
+    # http://lkml.iu.edu/hypermail/linux/kernel/1509.2/04313.html
+    echo 0 > /proc/sys/kernel/panic_on_oops
+
     log "{\"status\":\"Success\",\"capabilities\":{\"attach\":true}}"
     exit 0
 fi
