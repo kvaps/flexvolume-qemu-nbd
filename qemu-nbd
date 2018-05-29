@@ -314,7 +314,7 @@ fi
 if [ "$OPERATION" = "init" ]; then
     # Disable kernel panic on oops due:
     # http://lkml.iu.edu/hypermail/linux/kernel/1509.2/04313.html
-    echo 0 > /proc/sys/kernel/panic_on_oops
+    (echo 0 > /proc/sys/kernel/panic_on_oops) 2>/dev/null || true
 
     log "{\"status\":\"Success\",\"capabilities\":{\"attach\":true}}"
     exit 0
