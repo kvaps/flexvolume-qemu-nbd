@@ -111,7 +111,7 @@ domount() {
     if [ -z "${NBDDEVICE}" ]; then
         NBDNUMBERS="$(ls -1 /dev/nbd[0-9]* | grep -o [0-9]* | sort -h)"
         for i in $NBDNUMBERS; do
-            if fdisk -l "/dev/nbd$i" 2>&1 | grep -q 'Inappropriate ioctl for device' && mkfifo /run/lock/qemu-nbd-nbd$i 2> /dev/null; then
+            if ! lsblk "/dev/nbd$i" 1>/dev/null 2>/dev/null && ! ps x | grep -q "\[jbd2/nbd$i-8\]" && mkfifo /run/lock/qemu-nbd-nbd$i 2> /dev/null; then
                 NBDDEVICE="/dev/nbd$i"
                 break
             fi
