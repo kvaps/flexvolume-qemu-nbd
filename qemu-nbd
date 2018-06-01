@@ -207,7 +207,7 @@ waitforattach() {
     fi
 
     # Check is already attached
-    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -f raw -c \(/dev/nbd[0-9]\+\) ${IMAGE_URL}\$|\1|p" | head -n1)"
+    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -t -f raw -c \(/dev/nbd[0-9]\+\) ${IMAGE_URL}\$|\1|p" | head -n1)"
     if [ ! -z "${NBDDEVICE}" ]; then
         log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
         exit 0
@@ -221,7 +221,7 @@ waitforattach() {
     fi
 
     # Setup nbd device
-    qemu-nbd -f raw -c "${NBDDEVICE}" "${IMAGE_URL}" 1>/dev/null 2>/dev/null
+    qemu-nbd -t -f raw -c "${NBDDEVICE}" "${IMAGE_URL}" 1>/dev/null 2>/dev/null
     if [ $? -ne 0 ]; then
         err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
         exit 1
