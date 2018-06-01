@@ -80,6 +80,17 @@ dofilesystem() {
     fi
 } 
 
+
+attach() {
+    log "{\"status\": \"Success\"}"
+    exit 0
+}
+
+detach() {
+    log "{\"status\": \"Success\"}"
+    exit 0
+}
+
 waitforattach() {
     FSTYPE=$(echo "$1" | jq -r '.["kubernetes.io/fsType"]')
     MMP=$(echo "$1" | jq -r '.mmp')
@@ -327,6 +338,12 @@ fi
 shift
 
 case "$OPERATION" in
+    attach)
+        attach $*
+        ;;
+    detach)
+        detach $*
+        ;;
     waitforattach)
         waitforattach $*
         ;;
