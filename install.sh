@@ -9,7 +9,7 @@ DRIVER=sheepdog-iscsi
 driver_dir=$VENDOR${VENDOR:+"~"}${DRIVER}
 mkdir -p "/flexmnt/$driver_dir"
 
-for file in "$(which jq)" "$(which iscsiadm)" "$(which tgtadm)" /$DRIVER; do
+for file in "$(which jq)" /$DRIVER; do
     cp "$file" "/flexmnt/$driver_dir/.$(basename $file)"
     mv -f "/flexmnt/$driver_dir/.$(basename $file)" "/flexmnt/$driver_dir/$(basename $file)"
 done

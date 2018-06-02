@@ -1,6 +1,4 @@
-FROM ubuntu:16.04
-RUN apt-get update \
- && apt-get -y install jq open-iscsi tgt \
- && apt-get clean
+FROM alpine
+RUN apk add --no-cache jq
 ADD install.sh sheepdog-iscsi /
 CMD ["/install.sh"]
