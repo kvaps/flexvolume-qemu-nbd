@@ -10,7 +10,6 @@ spec:
       labels:
         app: flexvolume-qemu-nbd
     spec:
-      restartPolicy: OnFailure
       tolerations:
       - key: node-role.kubernetes.io/master
         operator: Exists

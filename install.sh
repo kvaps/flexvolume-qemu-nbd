@@ -14,4 +14,5 @@ for file in "$(which jq)" /$DRIVER; do
     mv -f "/flexmnt/$driver_dir/.$(basename $file)" "/flexmnt/$driver_dir/$(basename $file)"
 done
 
-exit 0
+# Sleep calm
+exec tail -f /dev/null
