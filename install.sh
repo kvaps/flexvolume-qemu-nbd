@@ -1,7 +1,6 @@
 #!/bin/sh
 
 set -o errexit
-set -o pipefail
 
 VENDOR=kvaps
 DRIVER=sheepdog-iscsi
