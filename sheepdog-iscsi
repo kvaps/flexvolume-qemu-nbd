@@ -248,7 +248,7 @@ waitforattach() {
         #TODO: take only needed target
         LUN=$(tgtadm --lld iscsi --mode target --op show 2> /dev/null | grep "Backing store path: ${IMAGE_URL}$" -B 12 -A 1 | sed -n 's/.*LUN: \([0-9]\+\).*/\1/p')
         if [ -z "$LUN" ]; then
-            LAST_LUN=$(tgtadm --lld iscsi --mode target --op show 2>/dev/null | sed -n 's/LUN: \([0-9]\+\)/\1/p' | sort -h)
+            LAST_LUN=$(tgtadm --lld iscsi --mode target --op show 2>/dev/null | sed -n 's/.*LUN: \([0-9]\+\).*/\1/p' | sort -h | tail -n1)
             LUN=$((LAST_LUN+1))
             tgtadm --op new --mode lu --tid 1 --lun $LUN --bstype sheepdog --backing-store "${IMAGE_URL}" 1>/dev/null 2>/dev/null
             if [ $? -ne 0 ]; then
@@ -271,6 +271,8 @@ waitforattach() {
             iscsiadm -m session --sid="$SESSION_ID" --rescan 1>/dev/null 2>/dev/null
         fi
 
+        # Find block device
+        sleep 1
         #TODO: handle LUNs >255
         DEVICE=$(readlink /dev/disk/by-path/ip-127.0.0.1\:3260-iscsi-iqn.2013-10.org.sheepdog-project-lun-${LUN} | awk -F/ '{print "/dev/" $NF}')
         if [ -z "${DEVICE}" ]; then
