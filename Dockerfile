@@ -1,4 +1,6 @@
-FROM alpine
+FROM ubuntu:16.04
+RUN apt-get update \
+ && apt-get -y install jq open-iscsi tgt \
+ && apt-get clean
 ADD install.sh qemu-nbd /
-RUN wget https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 -O jq
 CMD ["/install.sh"]
