@@ -36,7 +36,7 @@ log() {
 
 getdevice() {
     # Find and connect new nbd device
-    if [ -z "${NBDDEVICE}" ]; then
+    if [ -z "${DEVICE}" ]; then
         local NBDNUMBERS="$(ls -1 /dev/nbd[0-9]* | grep -o [0-9]* | sort -h)"
         for i in $NBDNUMBERS; do
             if ! lsblk "/dev/nbd$i" 1>/dev/null 2>/dev/null && ! ps x | grep -q "\[jbd2/nbd$i-8\]" && mkfifo /run/lock/qemu-nbd-nbd$i 2> /dev/null; then
@@ -45,7 +45,7 @@ getdevice() {
             fi
         done
     fi
-    echo "$NBDDEVICE"
+    echo "$DEVICE"
 }
 
 dofilesystem() {
@@ -101,7 +101,7 @@ waitforattach() {
     ALLOCATE=$(echo "$1" | jq -r '.allocate')
 
     # Get driver specific options
-    if [ "$DRIVER" = "sheepdog" ]; then
+    if [ "$DRIVER" = "sheepdog" ] || [ "$DRIVER" = "sheepdog-iscsi" ]; then
         for OPTION in prealloc hyper copies address address port block_size_shift; do
             VALUE="$(echo "$1" | jq -r ".$OPTION")"
             export "$(echo $OPTION | tr '[:lower:]' '[:upper:]')=$VALUE"
@@ -118,8 +118,12 @@ waitforattach() {
         fi
     fi
 
-    if [ "$DRIVER" != "sheepdog" ]; then
+    if [ "$DRIVER" != "sheepdog" ] && [ "$DRIVER" != "sheepdog-iscsi" ]; then
         IMAGE_URL="$FILE"
+    elif [ "$DRIVER" = "sheepdog-iscsi" ]; then
+        [ "$ADDRESS" != null ] || ADDRESS=127.0.0.1
+        [ "$PORT" != null ] || PORT=7000
+        IMAGE_URL="tcp:${ADDRESS}:${PORT}:${VDINAME}"
     elif [ "$ADDRESS" != null ] && [ "$PORT" = null ]; then
         IMAGE_URL="sheepdog://${ADDRESS}/${VDINAME}"
     elif [ "$ADDRESS" != null ] && [ "$PORT" != null ]; then
@@ -131,29 +135,41 @@ waitforattach() {
     fi
 
     # Check is SHARE mountpoint
-    if [ "$DRIVER" != "sheepdog" ] && [ "${SHARE}" != "null" ]; then
+    if [ "$DRIVER" != "sheepdog" ] && [ "$DRIVER" != "sheepdog-iscsi" ] && [ "${SHARE}" != "null" ]; then
         if ! mountpoint -q "${SHARE}"; then
             err "{ \"status\": \"Failed\", \"message\": \"${SHARE} is not mounted\"}"
             exit 0
         fi
     fi
 
+    if [ "$DRIVER" = "qemu-nbd" ] || [ "$DRIVER" = "nbd" ]; then
+        BINARIES="qemu-nbd"
+    elif [ "$DRIVER" = "sheepdog" ]; then
+        BINARIES="dog qemu-nbd"
+    elif [ "$DRIVER" = "sheepdog-iscsi" ]; then
+        BINARIES="dog iscsiadm tgtadm"
+    fi
+    
+    # Check for qemu binaries
+    for binary in $BINARIES; do
+        if ! command -v $binary >/dev/null 2>&1; then
+            err "{ \"status\": \"Failure\", \"message\": \"'$binary' binary not found.\"}"
+            exit 1
+        fi
+    done
+
     # Check is image exist
-    if [ "$DRIVER" != "sheepdog" ]; then
-        if [ ! -f "${FILE}" ]; then
-            IMAGE_EXIST=0
-        else
+    if [ "$DRIVER" != "sheepdog" ] && [ "$DRIVER" != "sheepdog-iscsi" ]; then
+        if [ -f "${FILE}" ]; then
             IMAGE_EXIST=1
+        else
+            IMAGE_EXIST=0
         fi
     else
-        QEMU_IMG_INFO_STDERR="$(qemu-img info "${IMAGE_URL}" 2>&1 1>/dev/null)"
-        if echo "$QEMU_IMG_INFO_STDERR" | grep -q 'No vdi found'; then
-            IMAGE_EXIST=0
-        elif [ -n "$QEMU_IMG_INFO_STDERR" ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"${QEMU_IMG_INFO_STDERR}\"}"
-            exit 1
-        else
+        if dog vdi list "$VDINAME" 2>/dev/null | tail -n +2 | grep -q .; then
             IMAGE_EXIST=1
+        else
+            IMAGE_EXIST=0
         fi
     fi
 
@@ -164,9 +180,9 @@ waitforattach() {
             exit 1
         fi
 
-        if [ "$DRIVER" != "sheepdog" ]; then
+        if [ "$DRIVER" != "sheepdog" ] && [ "$DRIVER" != "sheepdog-iscsi" ]; then
             mkdir -p "$(dirname "${FILE}")"
-            truncate -s ${SIZE} "${FILE}"
+            truncate -s ${SIZE} "${FILE}" 2>/dev/null
             if [ $? -ne 0 ]; then
                 err "{\"status\": \"Failure\", \"message\": \"Can not create file ${FILE}\"}"
                 exit 1
@@ -181,7 +197,7 @@ waitforattach() {
     fi
 
     # Do filesystem check
-    if [ "$DRIVER" != "sheepdog" ]; then
+    if [ "$DRIVER" != "sheepdog" ] && [ "$DRIVER" != "sheepdog-iscsi" ]; then
         dofilesystem "$FILE"
     fi
 
@@ -191,48 +207,85 @@ waitforattach() {
         exit 0
     fi
 
-    # Check for qemu binaries
-    for binary in qemu-nbd qemu-img; do
-        if ! command -v $binary >/dev/null 2>&1; then
-            err "{ \"status\": \"Failure\", \"message\": \"'$binary' binary not found. Please install qemu-utils package before using this driver\"}"
+    if [ "$DRIVER" != "sheepdog-iscsi" ]; then
+        # Load nbd module
+        modprobe nbd 2> /dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to load nbd module\"}"
             exit 1
         fi
-    done
 
-    # Load nbd module
-    modprobe nbd 2> /dev/null
-    if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Failed to load nbd module\"}"
-        exit 1
-    fi
+        # Check is already attached
+        DEVICE="$(ps aux | sed -n "s|.*qemu-nbd -t -f raw -c \(/dev/nbd[0-9]\+\) ${IMAGE_URL}\$|\1|p" | head -n1)"
+        if [ ! -z "${DEVICE}" ]; then
+            log "{\"status\": \"Success\", \"device\":\"${DEVICE}\"}"
+            exit 0
+        fi
 
-    # Check is already attached
-    NBDDEVICE="$(ps aux | sed -n "s|.*qemu-nbd -t -f raw -c \(/dev/nbd[0-9]\+\) ${IMAGE_URL}\$|\1|p" | head -n1)"
-    if [ ! -z "${NBDDEVICE}" ]; then
-        log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
-        exit 0
-    fi
+        # Get free nbd device
+        DEVICE="$(getdevice)"
+        if [ -z "${DEVICE}" ]; then
+            err "{\"status\": \"Failure\", \"message\": \"Free nbd device was not found\"}"
+            exit 1
+        fi
 
-    # Get free nbd device
-    NBDDEVICE="$(getdevice)"
-    if [ -z "${NBDDEVICE}" ]; then
-        err "{\"status\": \"Failure\", \"message\": \"Free nbd device was not found\"}"
-        exit 1
-    fi
+        # Setup nbd device
+        qemu-nbd -t -f raw -c "${DEVICE}" "${IMAGE_URL}" 1>/dev/null 2>/dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${DEVICE}" from ${FILE}\"}"
+            exit 1
+        fi
+    else
+        # Setup target
+        #TODO: check target id and configure target name
+        ! tgtadm --op new --mode target --tid 1 --lld iscsi --targetname iqn.2013-10.org.sheepdog-project 2>&1 | grep -qv "this target already exists"
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${DEVICE}" from ${FILE}\"}"
+            exit 1
+        fi
 
-    # Setup nbd device
-    qemu-nbd -t -f raw -c "${NBDDEVICE}" "${IMAGE_URL}" 1>/dev/null 2>/dev/null
-    if [ $? -ne 0 ]; then
-        err "{ \"status\": \"Failure\", \"message\": \"Failed to setup nbd device "${NBDDEVICE}" from ${FILE}\"}"
-        exit 1
+        # Setup LUN
+        #TODO: take only needed target
+        LUN=$(tgtadm --lld iscsi --mode target --op show 2> /dev/null | grep "Backing store path: ${IMAGE_URL}$" -B 12 -A 1 | sed -n 's/.*LUN: \([0-9]\+\).*/\1/p')
+        if [ -z "$LUN" ]; then
+            LAST_LUN=$(tgtadm --lld iscsi --mode target --op show 2>/dev/null | sed -n 's/LUN: \([0-9]\+\)/\1/p' | sort -h)
+            LUN=$((LAST_LUN+1))
+            tgtadm --op new --mode lu --tid 1 --lun $LUN --bstype sheepdog --backing-store "${IMAGE_URL}" 1>/dev/null 2>/dev/null
+            if [ $? -ne 0 ]; then
+                err "{ \"status\": \"Failure\", \"message\": \"Failed to attach LUN $LUN from ${IMAGE_URL}\"}"
+                exit 1
+            fi
+            tgtadm --lld iscsi --op bind --mode target --tid 1 -I ALL 1>/dev/null 2>/dev/null
+        fi
+
+        # Setup session
+        SESSION_ID=$(iscsiadm -m session 2> /dev/null | sed -n 's/^tcp: \[\([0-9]\+\)\].* iqn.2013-10.org.sheepdog-project .*/\1/p')
+        if [ -z "$SESSION_ID" ]; then
+            iscsiadm -m discovery -t st -p 127.0.0.1
+            iscsiadm -m node --targetname iqn.2013-10.org.sheepdog-project --portal 127.0.0.1:3260 --login 1>/dev/null 2>/dev/null
+            if [ $? -ne 0 ]; then
+                err "{ \"status\": \"Failure\", \"message\": \"Failed to setup iSCSI session\"}"
+                exit 1
+            fi
+        else
+            iscsiadm -m session --sid="$SESSION_ID" --rescan 1>/dev/null 2>/dev/null
+        fi
+
+        #TODO: handle LUNs >255
+        DEVICE=$(readlink /dev/disk/by-path/ip-127.0.0.1\:3260-iscsi-iqn.2013-10.org.sheepdog-project-lun-${LUN} | awk -F/ '{print "/dev/" $NF}')
+        if [ -z "${DEVICE}" ]; then
+            err "{\"status\": \"Failure\", \"message\": \"iSCSI device was not found\"}"
+            exit 1
+        fi
+
     fi
 
     # Do filesystem check
-    if [ "$DRIVER" = "sheepdog" ]; then
-        dofilesystem "$NBDDEVICE"
+    if [ "$DRIVER" = "sheepdog" ] || [ "$DRIVER" = "sheepdog-iscsi" ]; then
+        dofilesystem "$DEVICE"
     fi
 
-    log "{\"status\": \"Success\", \"device\":\"${NBDDEVICE}\"}"
+    log "{\"status\": \"Success\", \"device\":\"${DEVICE}\"}"
     exit 0
 }
 
@@ -286,13 +339,27 @@ unmountdevice() {
         exit 1
     fi
 
-    if [ "$DRIVER" != "loop" ]; then
+    if [ "$DRIVER" != "loop" ] && [ "$DRIVER" != "sheepdog-iscsi" ]; then
         sleep 1
         qemu-nbd -d ${DEVICE} 1>/dev/null 2>/dev/null
         if [ $? -ne 0 ]; then
             err "{ \"status\": \"Failure\", \"message\": \"Failed to detach device ${DEVICE}\"}"
             exit 1
         fi
+    elif [ "$DRIVER" = "sheepdog-iscsi" ]; then
+
+        #TODO: handle LUNs >255
+        LUN=$(ls -l /dev/disk/by-path | sed -n "s/.*lun-\([0-9]\)\+ -> \.\.\/\.\.\/${DEVICE##*/}$/\1/p")
+        tgtadm --op delete --mode lu --tid 1 --lun $LUN 1>/dev/null 2>/dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to detach LUN $LUN\"}"
+            exit 1
+        fi
+
+        # Reload session
+        SESSION_ID=$(iscsiadm -m session 2> /dev/null | sed -n 's/^tcp: \[\([0-9]\+\)\].* iqn.2013-10.org.sheepdog-project .*/\1/p')
+        iscsiadm -m session --sid="$SESSION_ID" --rescan 1>/dev/null 2>/dev/null
+
     fi
 
     log "{\"status\": \"Success\"}"
@@ -305,10 +372,10 @@ DRIVER="$(basename $0)"
 OPERATION=$1
 
 # enable debug
-#echo "$DRIVER $@" >> /tmp/flex-qemu-nbd.log
+echo "$DRIVER $@" >> /tmp/flex-qemu-nbd.log
 
 case "${DRIVER}" in
-    loop|qemu-nbd|nbd|sheepdog)
+    loop|qemu-nbd|nbd|sheepdog|sheepdog-iscsi)
         true
         ;;
     *)
