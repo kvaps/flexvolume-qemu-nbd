@@ -352,15 +352,24 @@ unmountdevice() {
 
         #TODO: handle LUNs >255
         LUN=$(ls -l /dev/disk/by-path | sed -n "s/.*lun-\([0-9]\)\+ -> \.\.\/\.\.\/${DEVICE##*/}$/\1/p")
-        tgtadm --op delete --mode lu --tid 1 --lun $LUN 1>/dev/null 2>/dev/null
+
+        blockdev --flushbufs "${DEVICE}" 2>/dev/null
         if [ $? -ne 0 ]; then
-            err "{ \"status\": \"Failure\", \"message\": \"Failed to detach LUN $LUN\"}"
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to flush buffers on ${DEVICE}\"}"
             exit 1
         fi
 
-        # Reload session
-        SESSION_ID=$(iscsiadm -m session 2> /dev/null | sed -n 's/^tcp: \[\([0-9]\+\)\].* iqn.2013-10.org.sheepdog-project .*/\1/p')
-        iscsiadm -m session --sid="$SESSION_ID" --rescan 1>/dev/null 2>/dev/null
+        (echo 1 > /sys/block/${DEVICE##*/}/device/delete) 2>/dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to remove ${DEVICE}\"}"
+            exit 1
+        fi
+
+        tgtadm --op delete --mode lu --tid 1 --lun $LUN 1>/dev/null 2>/dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Failed to disable LUN $LUN\"}"
+            exit 1
+        fi
 
     fi
 
