@@ -188,7 +188,7 @@ waitforattach() {
                 exit 1
             fi
         else
-            dog vdi create $DOG_CREATE_OPTS "$VDINAME" "$SIZE"
+            dog vdi create $DOG_CREATE_OPTS "$VDINAME" "$SIZE" 1>/dev/null 2>/dev/null
             if [ $? -ne 0 ]; then
                 err "{ \"status\": \"Failure\", \"message\": \"Failed to create vdi ${IMAGE_URL}\"}"
                 exit 1
@@ -284,6 +284,11 @@ waitforattach() {
 
     # Do filesystem check
     if [ "$DRIVER" = "sheepdog" ] || [ "$DRIVER" = "sheepdog-iscsi" ]; then
+        dog vdi check "$VDINAME"  1>/dev/null 2>/dev/null
+        if [ $? -ne 0 ]; then
+            err "{ \"status\": \"Failure\", \"message\": \"Dog vdi check for ${VDINAME} was failed\"}"
+            exit 1
+        fi
         dofilesystem "$DEVICE"
     fi
 
